@@ -1,0 +1,13 @@
+# La verificación JWT en el gateway bloquea el OPTIONS del navegador (preflight CORS
+# sin Bearer). Esta función comprueba el JWT dentro del handler con auth.getUser(jwt).
+[functions.admin-set-password]
+verify_jwt = false
+
+[functions.admin-create-user]
+verify_jwt = false
+
+[functions.admin-delete-user]
+verify_jwt = false
+
+[functions.parse-orden-compra-pdf]
+verify_jwt = false

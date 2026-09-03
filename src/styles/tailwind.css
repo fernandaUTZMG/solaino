@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue',
+      Helvetica, Arial, sans-serif;
+    background: #f8fafc;
+    color: #0f172a;
+  }
+}
+
+/** Solo pantalla de login (tipografía tipo iOS). */
+@layer utilities {
+  .font-ios {
+    font-family:
+      -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue',
+      Helvetica, Arial, sans-serif;
+  }
+}

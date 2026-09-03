@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manual de Usuario — SOLAINO Bodega</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --navy: #1e3a5f;
+      --navy-dark: #0f2744;
+      --accent: #853d85;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg-soft: #f8fafc;
+      --role-disenadora: #853d85;
+      --role-programadora: #2563eb;
+      --role-operador: #059669;
+      --role-encargado: #d97706;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 11pt;
+      line-height: 1.55;
+      color: var(--text);
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 0 12mm 20mm;
+      background: #fff;
+    }
+    @media print {
+      body { padding: 0; max-width: none; }
+      .no-print { display: none !important; }
+      .page-break { page-break-before: always; }
+      figure img { max-height: 175mm; object-fit: contain; }
+      a { color: inherit; text-decoration: none; }
+    }
+    .cover {
+      min-height: 260mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(160deg, var(--navy-dark) 0%, var(--navy) 45%, #2d4a6f 100%);
+      color: #fff;
+      margin: 0 -12mm;
+      padding: 40mm 20mm;
+    }
+    .cover img.logo { max-width: 140px; margin-bottom: 24px; }
+    .cover h1 { font-size: 28pt; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .cover .subtitle { font-size: 14pt; opacity: 0.92; margin-bottom: 32px; }
+    .cover .meta { font-size: 10pt; opacity: 0.8; line-height: 1.8; }
+    h1.doc-title { color: var(--navy); font-size: 22pt; border-bottom: 3px solid var(--navy); padding-bottom: 8px; margin-top: 0; }
+    h2 { color: var(--navy); font-size: 15pt; margin-top: 28px; border-left: 4px solid var(--accent); padding-left: 12px; }
+    h3 { color: var(--navy-dark); font-size: 12pt; margin-top: 20px; }
+    h4 { font-size: 11pt; color: var(--muted); margin-top: 14px; }
+    p { margin: 0 0 10px; text-align: justify; }
+    ul, ol { margin: 0 0 12px; padding-left: 22px; }
+    li { margin-bottom: 4px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 16px;
+      font-size: 10pt;
+    }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: var(--navy); color: #fff; font-weight: 600; }
+    tr:nth-child(even) td { background: var(--bg-soft); }
+    figure {
+      margin: 16px 0 20px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      break-inside: avoid;
+    }
+    figure img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 0 auto;
+      border-radius: 4px;
+      border: 1px solid #eee;
+    }
+    figure.diagram-flow img {
+      max-width: 100%;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+    figure.diagram-flow { padding: 16px; background: #fafafa; }
+    figcaption {
+      margin-top: 10px;
+      font-size: 9.5pt;
+      color: var(--muted);
+      text-align: center;
+      font-style: italic;
+    }
+    .callout {
+      background: #eff6ff;
+      border-left: 4px solid #2563eb;
+      padding: 12px 16px;
+      margin: 14px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 10.5pt;
+    }
+    .callout.warn { background: #fffbeb; border-color: #d97706; }
+    .callout.ok { background: #ecfdf5; border-color: #059669; }
+    .callout.role-d { background: #faf5ff; border-color: var(--role-disenadora); }
+    .callout.role-p { background: #eff6ff; border-color: var(--role-programadora); }
+    .callout.role-o { background: #ecfdf5; border-color: var(--role-operador); }
+    .callout.role-e { background: #fffbeb; border-color: var(--role-encargado); }
+    .toc { background: var(--bg-soft); padding: 20px 24px; border-radius: 8px; margin: 20px 0; }
+    .toc ol { columns: 2; column-gap: 32px; }
+    .toc a { color: var(--navy); text-decoration: none; }
+    .mermaid { margin: 16px 0; text-align: center; }
+    .badge { display: inline-block; background: var(--navy); color: #fff; font-size: 8pt; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+    .badge-d { background: var(--role-disenadora); }
+    .badge-p { background: var(--role-programadora); }
+    .badge-o { background: var(--role-operador); }
+    .badge-e { background: var(--role-encargado); }
+    .steps { counter-reset: step; list-style: none; padding: 0; }
+    .steps li { counter-increment: step; padding-left: 36px; position: relative; margin-bottom: 10px; }
+    .steps li::before {
+      content: counter(step);
+      position: absolute; left: 0; top: 0;
+      width: 24px; height: 24px;
+      background: var(--navy); color: #fff;
+      border-radius: 50%; font-size: 9pt; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .print-bar {
+      position: sticky; top: 0; z-index: 100;
+      background: #fef3c7; border-bottom: 1px solid #fcd34d;
+      padding: 10px 16px; text-align: center; font-size: 10pt;
+    }
+    .print-bar button {
+      background: var(--navy); color: #fff; border: none;
+      padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;
+      margin-left: 12px;
+    }
+    .role-banner {
+      padding: 14px 18px;
+      border-radius: 8px;
+      margin: 0 0 20px;
+      color: #fff;
+      font-weight: 600;
+      font-size: 13pt;
+    }
+    .role-banner.d { background: linear-gradient(90deg, #6b2d6b, var(--role-disenadora)); }
+    .role-banner.p { background: linear-gradient(90deg, #1d4ed8, var(--role-programadora)); }
+    .role-banner.o { background: linear-gradient(90deg, #047857, var(--role-operador)); }
+    .role-banner.e { background: linear-gradient(90deg, #b45309, var(--role-encargado)); }
+    footer.doc-footer {
+      margin-top: 40px; padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 9pt; color: var(--muted); text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="print-bar no-print">
+  Manual de Usuario SOLAINO — Espere que carguen los diagramas, luego <strong>Ctrl+P</strong> → Guardar como PDF.
+  <button type="button" onclick="window.print()">Imprimir / PDF</button>
+</div>
+
+<!-- PORTADA -->
+<section class="cover page-break">
+  <img class="logo" src="imagenes/logo_solaino.png" alt="Logo SOLAINO" />
+  <h1>Manual de Usuario</h1>
+  <p class="subtitle">Módulo Bodega — Guía por rol</p>
+  <p class="meta">
+    Diseñadora · Programadora maquinaria · Operador taller · Supervisor (encargado)<br />
+    SOLAINO — Inventario y producción<br />
+    Versión 1.0 — Mayo 2026
+  </p>
+</section>
+
+<!-- ÍNDICE -->
+<section id="indice">
+  <h1 class="doc-title">Índice</h1>
+  <nav class="toc">
+    <ol>
+      <li><a href="#s1">1. Introducción y acceso</a></li>
+      <li><a href="#s2">2. Diagrama de flujo del proceso</a></li>
+      <li><a href="#s3">3. Rol: Diseñadora</a></li>
+      <li><a href="#s4">4. Rol: Programadora maquinaria</a></li>
+      <li><a href="#s5">5. Rol: Operador taller</a></li>
+      <li><a href="#s6">6. Rol: Supervisor (encargado)</a></li>
+      <li><a href="#s7">7. Diagramas y permisos por rol</a></li>
+      <li><a href="#s8">8. Glosario y buenas prácticas</a></li>
+    </ol>
+  </nav>
+</section>
+
+<!-- 1 INTRO -->
+<section id="s1" class="page-break">
+  <h1 class="doc-title">1. Introducción y acceso</h1>
+
+  <p>Este manual está dirigido al personal operativo del <strong>módulo Bodega</strong> de SOLAINO. Cada capítulo corresponde a un rol de usuario. Si su cuenta tiene un solo rol, puede ir directamente a su sección; si tiene dudas sobre qué ve en pantalla, consulte la matriz de permisos al final.</p>
+
+  <h2>1.1 Roles cubiertos</h2>
+  <table>
+    <tr><th>Rol en el sistema</th><th>Nombre en pantalla</th><th>Enfoque principal</th></tr>
+    <tr><td><span class="badge badge-d">disenadora</span></td><td>Diseñadora (Bodega)</td><td>Diseño CAD, entregas ZIP, planos, histórico de diseño, tiempos</td></tr>
+    <tr><td><span class="badge badge-p">programadora_maquinaria</span></td><td>Programadora maquinaria</td><td>Programación CNC, asignación de piezas, maquinado y taller</td></tr>
+    <tr><td><span class="badge badge-o">operador_bodega</span></td><td>Operador taller</td><td>Perfilado, armado y detallado en Taller; cola de prioridades</td></tr>
+    <tr><td><span class="badge badge-e">encargado</span></td><td>Supervisor / encargado</td><td>Proyectos, OC, revisiones, catálogos, histórico, cierre formal</td></tr>
+  </table>
+
+  <div class="callout warn">
+    <strong>Nota:</strong> El rol <em>Usuario</em> (inventario) y el <em>Administrador</em> tienen manuales aparte. Este documento no cubre el módulo de Inventario ni la gestión de usuarios.
+  </div>
+
+  <h2>1.2 Inicio de sesión</h2>
+  <p>Todos los roles acceden con correo y contraseña asignados por el administrador. Si olvidó su clave, solicite recuperación; un administrador la restablecerá desde el panel de Usuarios.</p>
+  <figure>
+    <img src="imagenes/disenadora/login.png" alt="Pantalla de inicio de sesión" />
+    <figcaption>Fig. 1.1 — Pantalla de acceso a SOLAINO</figcaption>
+  </figure>
+
+  <h2>1.3 Menú Bodega</h2>
+  <p>Tras iniciar sesión, el menú superior muestra <strong>Bodega</strong> con las vistas permitidas para su rol. Use el botón de despliegue para ver Proyectos, Prioridades, Plan de trabajo, Nube, Reportes, Histórico (si aplica), Maquinado y Taller.</p>
+  <figure>
+    <img src="imagenes/disenadora/boton despliegue_bodega.png" alt="Menú desplegable Bodega" />
+    <figcaption>Fig. 1.2 — Opciones del menú Bodega (varían según rol)</figcaption>
+  </figure>
+
+  <h2>1.4 Vista general del flujo</h2>
+  <div class="mermaid">
+flowchart LR
+  OC[Orden de compra] --> DIS[Diseño]
+  DIS --> REV[Revisión supervisor]
+  REV --> PROG[Programación CNC]
+  PROG --> MAQ[Maquinado]
+  MAQ --> TAL[Taller: perfilado / armado / detallado]
+  TAL --> FOT[Fotos y cierre]
+  </div>
+  <p>El proyecto avanza por etapas. Cada rol trabaja en su tramo; las notificaciones (campana) avisan cuando cambia la prioridad de un proyecto.</p>
+</section>
+
+<!-- 2 DIAGRAMA FLUJO -->
+<section id="s2" class="page-break">
+  <h1 class="doc-title">2. Diagrama de flujo del proceso</h1>
+  <p>El siguiente diagrama oficial resume el recorrido de un proyecto desde la orden de compra hasta el cierre. Consulte la leyenda de colores en la primera lámina.</p>
+
+  <figure class="diagram-flow">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-1.png" alt="Diagrama flujo — portada y leyenda" />
+    <figcaption>Fig. 2.1 — Portada del diagrama y leyenda de etapas</figcaption>
+  </figure>
+  <figure class="diagram-flow">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-2.png" alt="Flujo diseño y revisión" />
+    <figcaption>Fig. 2.2 — Diseño, entregas y revisión del supervisor</figcaption>
+  </figure>
+  <figure class="diagram-flow page-break">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-3.png" alt="Flujo programación y maquinado" />
+    <figcaption>Fig. 2.3 — Programación, asignación y maquinado</figcaption>
+  </figure>
+  <figure class="diagram-flow">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-4.png" alt="Flujo taller y cierre" />
+    <figcaption>Fig. 2.4 — Taller (detallado, armado) y solicitud de cierre</figcaption>
+  </figure>
+  <figure class="diagram-flow">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-5.png" alt="Casos especiales" />
+    <figcaption>Fig. 2.5 — Casos especiales: perfilado, PDF faltante, tiempos</figcaption>
+  </figure>
+
+  <div class="callout ok">
+    <strong>Consejo:</strong> Imprima o guarde estas láminas cerca del puesto de trabajo. Cuando un proyecto «se detiene», identifique en qué recuadro del diagrama está y qué rol debe actuar.
+  </div>
+</section>
+
+<!-- 3 DISEÑADORA -->
+<section id="s3" class="page-break">
+  <div class="role-banner d">Rol: Diseñadora (Bodega)</div>
+  <h1 class="doc-title">3. Diseñadora</h1>
+
+  <div class="callout role-d">
+    Usted elabora el diseño del proyecto, sube entregas (ZIP), registra tiempos, consulta prioridades y puede respaldar archivos en el <strong>Histórico</strong> (área «Diseño» en pantalla). No administra órdenes de compra ni aprueba entregas de otros.
+  </div>
+
+  <h2>3.1 Pantalla de inicio y navegación</h2>
+  <figure>
+    <img src="imagenes/disenadora/inicio.png" alt="Inicio diseñadora" />
+    <figcaption>Fig. 3.1 — Vista inicial al entrar a Bodega</figcaption>
+  </figure>
+
+  <h2>3.2 Clientes y proyectos</h2>
+  <p>En <strong>Proyectos</strong> ve la lista de trabajos asignados. Filtre por cliente, folio o estado. Abra un proyecto para ver piezas, avance y archivos.</p>
+  <figure>
+    <img src="imagenes/disenadora/clientes.png" alt="Clientes" />
+    <figcaption>Fig. 3.2 — Catálogo de clientes vinculados a proyectos</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/disenadora/proyectos.png" alt="Lista de proyectos" />
+    <figcaption>Fig. 3.3 — Listado de proyectos en curso</figcaption>
+  </figure>
+
+  <h2>3.3 Prioridades y plan de trabajo</h2>
+  <p><strong>Prioridades</strong> muestra la cola global ordenada por urgencia (0 = más urgente). La campana de notificaciones avisa cuando el supervisor cambia la prioridad de un proyecto que le concierne.</p>
+  <figure>
+    <img src="imagenes/disenadora/prioridades.png" alt="Cola de prioridades" />
+    <figcaption>Fig. 3.4 — Cola de prioridades</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/disenadora/notificacion cambio de prioridad.png" alt="Notificación prioridad" />
+    <figcaption>Fig. 3.5 — Notificación de cambio de prioridad</figcaption>
+  </figure>
+  <p><strong>Plan de trabajo</strong> es el tablero semanal (lunes a viernes): metas, avance real y motivos de atraso. Usted puede consultarlo; la edición la hace el supervisor.</p>
+  <figure>
+    <img src="imagenes/disenadora/plan de trabajo.png" alt="Plan de trabajo semanal" />
+    <figcaption>Fig. 3.6 — Plan de trabajo semanal</figcaption>
+  </figure>
+
+  <h2>3.4 Archivos en la nube y entregas</h2>
+  <p>En <strong>Nube</strong> consulta y sube archivos del flujo activo del proyecto. En la ficha del proyecto use <strong>Archivos y entregas</strong> para subir el ZIP de diseño (entrega versionada).</p>
+  <figure>
+    <img src="imagenes/disenadora/nube.png" alt="Vista Nube" />
+    <figcaption>Fig. 3.7 — Archivos en la nube por proyecto</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/disenadora/archivos y entregas.png" alt="Archivos y entregas de diseño" />
+    <figcaption>Fig. 3.8 — Subir entrega de diseño (ZIP)</figcaption>
+  </figure>
+
+  <h2>3.5 Tiempos, avance y reportes</h2>
+  <p>Registre tiempos de trabajo por orden o proyecto. El avance de tiempos alimenta los reportes del supervisor.</p>
+  <figure>
+    <img src="imagenes/disenadora/orden_avance de tiempos.png" alt="Avance de tiempos por orden" />
+    <figcaption>Fig. 3.9 — Registro de avance de tiempos</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/disenadora/tiempos de trabajo.png" alt="Tiempos de trabajo" />
+    <figcaption>Fig. 3.10 — Detalle de tiempos de trabajo</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/disenadora/reportes y tiempos.png" alt="Reportes y tiempos" />
+    <figcaption>Fig. 3.11 — Reportes de tiempos</figcaption>
+  </figure>
+
+  <h2>3.6 Planos adicionales y notas</h2>
+  <p>Si falta un plano PDF de una pieza, adjúntelo desde la ficha de la pieza. Use el historial de notas para dejar comentarios sin cambiar el avance.</p>
+  <figure>
+    <img src="imagenes/disenadora/planos adicionales.png" alt="Planos adicionales" />
+    <figcaption>Fig. 3.12 — Adjuntar plano adicional a una pieza</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/disenadora/notas-historial.png" alt="Notas en historial" />
+    <figcaption>Fig. 3.13 — Notas en el historial del proyecto</figcaption>
+  </figure>
+
+  <h2>3.7 Histórico (respaldo USB)</h2>
+  <p>En <strong>Histórico</strong> puede indexar carpetas desde USB hacia la nube (área de diseño). No cierre sesión durante subidas masivas; el sistema refresca la sesión automáticamente.</p>
+  <figure>
+    <img src="imagenes/disenadora/archivos-historicos.png" alt="Vista histórico" />
+    <figcaption>Fig. 3.14 — Explorador del histórico</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/disenadora/subir carpeta disenadora.png" alt="Subir carpeta histórico" />
+    <figcaption>Fig. 3.15 — Subir carpeta desde USB al histórico</figcaption>
+  </figure>
+
+  <h2>3.8 Alertas habituales</h2>
+  <figure>
+    <img src="imagenes/disenadora/notificacion falta pdf.png" alt="Alerta PDF faltante" />
+    <figcaption>Fig. 3.16 — Alerta cuando falta un PDF en una pieza</figcaption>
+  </figure>
+
+  <h2>3.9 Flujo resumido — Diseñadora</h2>
+  <div class="mermaid">
+flowchart TD
+  A[Abrir proyecto] --> B{Entrega lista?}
+  B -->|No| C[Trabajar diseño]
+  C --> D[Subir ZIP en Archivos y entregas]
+  D --> E[Registrar tiempos]
+  B -->|Sí| F[Esperar revisión supervisor]
+  F --> G{Aprobado?}
+  G -->|Cambios| C
+  G -->|Sí| H[Pasa a programación]
+  </div>
+</section>
+
+<!-- 4 PROGRAMADORA -->
+<section id="s4" class="page-break">
+  <div class="role-banner p">Rol: Programadora maquinaria</div>
+  <h1 class="doc-title">4. Programadora maquinaria</h1>
+
+  <div class="callout role-p">
+    Usted recibe proyectos con diseño aprobado, asigna piezas, sube programación CNC, gestiona la cola de <strong>Maquinado</strong> y participa en <strong>Taller</strong> (armado, tiempos masivos). También consulta Prioridades, Plan de trabajo, Reportes e Histórico (área «Programadora» en pantalla).
+  </div>
+
+  <h2>4.1 Inicio y menú</h2>
+  <figure>
+    <img src="imagenes/programadora/inicio.png" alt="Inicio programadora" />
+    <figcaption>Fig. 4.1 — Vista inicial programadora</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/opciones bodega.png" alt="Opciones menú bodega" />
+    <figcaption>Fig. 4.2 — Opciones disponibles en el menú Bodega</figcaption>
+  </figure>
+
+  <h2>4.2 Proyectos, clientes y prioridades</h2>
+  <figure>
+    <img src="imagenes/programadora/cliente.png" alt="Clientes" />
+    <figcaption>Fig. 4.3 — Clientes</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/proyectos.png" alt="Proyectos" />
+    <figcaption>Fig. 4.4 — Proyectos asignados</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/prioridad.png" alt="Prioridades" />
+    <figcaption>Fig. 4.5 — Cola de prioridades</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/plan de trabajo .png" alt="Plan de trabajo" />
+    <figcaption>Fig. 4.6 — Plan de trabajo semanal</figcaption>
+  </figure>
+
+  <h2>4.3 Orden de compra y piezas</h2>
+  <p>Abra la orden vinculada al proyecto. Asigne piezas a programación y confirme la asignación antes de subir archivos CNC.</p>
+  <figure>
+    <img src="imagenes/programadora/orden.png" alt="Detalle de orden" />
+    <figcaption>Fig. 4.7 — Detalle de orden de compra</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/ordenes de compra.png" alt="Listado OC" />
+    <figcaption>Fig. 4.8 — Listado de órdenes de compra</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/asignar piezas.png" alt="Asignar piezas" />
+    <figcaption>Fig. 4.9 — Asignar piezas a programación</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/confirmar asignacion.png" alt="Confirmar asignación" />
+    <figcaption>Fig. 4.10 — Confirmar asignación de piezas</figcaption>
+  </figure>
+
+  <h2>4.4 Programación CNC</h2>
+  <p>Registre tiempos de programación, suba el ZIP de maquinado y marque la etapa como terminada cuando corresponda.</p>
+  <figure>
+    <img src="imagenes/programadora/tiempos de programacion.png" alt="Tiempos programación" />
+    <figcaption>Fig. 4.11 — Tiempos de programación</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/tiempos y tiempo estimado.png" alt="Tiempos y estimado" />
+    <figcaption>Fig. 4.12 — Tiempos reales vs. estimados</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/terminar programacion.png" alt="Terminar programación" />
+    <figcaption>Fig. 4.13 — Terminar etapa de programación</figcaption>
+  </figure>
+
+  <h2>4.5 Nube e histórico</h2>
+  <figure>
+    <img src="imagenes/programadora/archivo nube.png" alt="Archivos nube" />
+    <figcaption>Fig. 4.14 — Archivos en la nube</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/archivo historico.png" alt="Histórico programadora" />
+    <figcaption>Fig. 4.15 — Histórico (respaldo programación)</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/notas-historial.png" alt="Notas historial" />
+    <figcaption>Fig. 4.16 — Notas en historial del proyecto</figcaption>
+  </figure>
+
+  <h2>4.6 Maquinado</h2>
+  <p>La vista <strong>Maquinado</strong> concentra piezas listas para CNC/Torno. Registre inicio y fin de maquinado por pieza o en lote.</p>
+  <figure>
+    <img src="imagenes/programadora/maquinado.png" alt="Cola maquinado" />
+    <figcaption>Fig. 4.17 — Cola de maquinado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/terminacion maquinado.png" alt="Terminar maquinado" />
+    <figcaption>Fig. 4.18 — Terminación de maquinado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/inicio masivo.png" alt="Inicio masivo" />
+    <figcaption>Fig. 4.19 — Inicio masivo de piezas</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/tiempo masivo de piezas.png" alt="Tiempo masivo" />
+    <figcaption>Fig. 4.20 — Registro masivo de tiempos</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/fin masivo detallado.png" alt="Fin masivo detallado" />
+    <figcaption>Fig. 4.21 — Fin masivo en etapa detallado</figcaption>
+  </figure>
+
+  <h2>4.7 Taller (perfilado, armado, detallado)</h2>
+  <p>En <strong>Taller</strong> continúa el trabajo físico: perfilado, armado y detallado. Las capturas de esta subsección son las mismas que verá el operador de taller (capítulo 5).</p>
+  <figure>
+    <img src="imagenes/programadora/armado.png" alt="Etapa armado" />
+    <figcaption>Fig. 4.22 — Trabajo en etapa de armado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/fin de armado.png" alt="Fin armado" />
+    <figcaption>Fig. 4.23 — Finalizar armado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/taller-detallado-pza.png" alt="Taller detallado pieza" />
+    <figcaption>Fig. 4.24 — Detallado por pieza en taller</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/taller-tiempos y piezas.png" alt="Tiempos y piezas taller" />
+    <figcaption>Fig. 4.25 — Tiempos y piezas en taller</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/terminacion taller perfilado.png" alt="Terminación perfilado" />
+    <figcaption>Fig. 4.26 — Terminación de perfilado en taller</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/elegir imagen de tiempo aproximado.png" alt="Tiempo aproximado" />
+    <figcaption>Fig. 4.27 — Selección de tiempo aproximado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/fotos de piezas.png" alt="Fotos de piezas" />
+    <figcaption>Fig. 4.28 — Subir fotos de piezas terminadas</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/solicitar cierre.png" alt="Solicitar cierre" />
+    <figcaption>Fig. 4.29 — Solicitar cierre al supervisor</figcaption>
+  </figure>
+
+  <h2>4.8 Reportes y alertas</h2>
+  <figure>
+    <img src="imagenes/programadora/reportes.png" alt="Reportes" />
+    <figcaption>Fig. 4.30 — Reportes de tiempos</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/notificacion cambio de alertas.png" alt="Notificación alertas" />
+    <figcaption>Fig. 4.31 — Notificaciones de cambio de prioridad / alertas</figcaption>
+  </figure>
+
+  <h2>4.9 Flujo resumido — Programadora</h2>
+  <div class="mermaid">
+flowchart TD
+  P[Proyecto aprobado] --> A[Asignar piezas]
+  A --> B[Programar CNC y subir ZIP]
+  B --> C[Terminar programación]
+  C --> D[Maquinado]
+  D --> E[Taller]
+  E --> F[Fotos]
+  F --> G[Solicitar cierre al supervisor]
+  </div>
+</section>
+
+<!-- 5 OPERADOR -->
+<section id="s5" class="page-break">
+  <div class="role-banner o">Rol: Operador taller</div>
+  <h1 class="doc-title">5. Operador taller</h1>
+
+  <div class="callout role-o">
+    Su rol se centra en la vista <strong>Taller</strong>: perfilado, armado y detallado de piezas. Consulta <strong>Prioridades</strong> y <strong>Plan de trabajo</strong>. No programa CNC ni administra histórico. Las pantallas de taller son las mismas que usa la programadora (desde la sección Taller en adelante).
+  </div>
+
+  <h2>5.1 Qué ve en el menú</h2>
+  <table>
+    <tr><th>Vista</th><th>Operador</th></tr>
+    <tr><td>Proyectos</td><td>Consulta y trabajo en piezas</td></tr>
+    <tr><td>Prioridades</td><td>Sí — cola global</td></tr>
+    <tr><td>Plan de trabajo</td><td>Solo lectura</td></tr>
+    <tr><td>Taller</td><td>Sí — trabajo principal</td></tr>
+    <tr><td>Maquinado</td><td>No (lo realiza programadora)</td></tr>
+    <tr><td>Histórico / Reportes</td><td>No</td></tr>
+  </table>
+
+  <h2>5.2 Prioridades</h2>
+  <p>Revise la cola al inicio del turno. Atienda primero los proyectos con prioridad más alta (número menor).</p>
+  <figure>
+    <img src="imagenes/programadora/prioridad.png" alt="Prioridades operador" />
+    <figcaption>Fig. 5.1 — Cola de prioridades (misma vista que programadora)</figcaption>
+  </figure>
+
+  <h2>5.3 Trabajo en Taller</h2>
+  <p>Abra el proyecto desde <strong>Taller</strong> o desde Proyectos. Registre tiempos al iniciar y terminar cada etapa.</p>
+
+  <h3>5.3.1 Armado</h3>
+  <figure>
+    <img src="imagenes/programadora/armado.png" alt="Armado" />
+    <figcaption>Fig. 5.2 — Etapa de armado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/fin de armado.png" alt="Fin armado" />
+    <figcaption>Fig. 5.3 — Finalizar armado</figcaption>
+  </figure>
+
+  <h3>5.3.2 Detallado y tiempos por pieza</h3>
+  <figure>
+    <img src="imagenes/programadora/taller-detallado-pza.png" alt="Detallado pieza" />
+    <figcaption>Fig. 5.4 — Detallado por pieza</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/taller-tiempos y piezas.png" alt="Tiempos piezas" />
+    <figcaption>Fig. 5.5 — Tiempos y listado de piezas</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/terminacion taller perfilado.png" alt="Perfilado" />
+    <figcaption>Fig. 5.6 — Terminación de perfilado</figcaption>
+  </figure>
+
+  <h3>5.3.3 Registro masivo de tiempos</h3>
+  <p>Cuando varias piezas comparten la misma operación, use inicio/fin masivo para ahorrar captura.</p>
+  <figure>
+    <img src="imagenes/programadora/inicio masivo.png" alt="Inicio masivo operador" />
+    <figcaption>Fig. 5.7 — Inicio masivo de piezas</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/tiempo masivo de piezas.png" alt="Tiempo masivo" />
+    <figcaption>Fig. 5.8 — Tiempo masivo</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/fin masivo detallado.png" alt="Fin masivo" />
+    <figcaption>Fig. 5.9 — Fin masivo en detallado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/elegir imagen de tiempo aproximado.png" alt="Tiempo aproximado operador" />
+    <figcaption>Fig. 5.10 — Tiempo aproximado</figcaption>
+  </figure>
+
+  <h2>5.4 Fotos y solicitud de cierre</h2>
+  <p>Al terminar las piezas, coordine con programadora o supervisor para fotos y cierre formal del proyecto.</p>
+  <figure>
+    <img src="imagenes/programadora/fotos de piezas.png" alt="Fotos piezas operador" />
+    <figcaption>Fig. 5.11 — Fotos de piezas (referencia de pantalla compartida)</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/programadora/solicitar cierre.png" alt="Solicitar cierre operador" />
+    <figcaption>Fig. 5.12 — Solicitar cierre al supervisor</figcaption>
+  </figure>
+
+  <h2>5.5 Notas en el proyecto</h2>
+  <p>Puede dejar notas en el historial del proyecto para comunicar incidencias al supervisor.</p>
+  <figure>
+    <img src="imagenes/programadora/notas-historial.png" alt="Notas operador" />
+    <figcaption>Fig. 5.13 — Notas en historial</figcaption>
+  </figure>
+
+  <h2>5.6 Flujo resumido — Operador</h2>
+  <div class="mermaid">
+flowchart TD
+  T[Inicio de turno] --> P[Revisar Prioridades]
+  P --> Q[Abrir proyecto en Taller]
+  Q --> R{Etapa?}
+  R -->|Perfilado| S[Registrar tiempos perfilado]
+  R -->|Armado| U[Registrar armado]
+  R -->|Detallado| V[Registrar detallado / masivo]
+  S & U & V --> W[Nota si hay incidencia]
+  W --> X[Coordinar fotos y cierre]
+  </div>
+</section>
+
+<!-- 6 ENCARGADO -->
+<section id="s6" class="page-break">
+  <div class="role-banner e">Rol: Supervisor / encargado (Bodega)</div>
+  <h1 class="doc-title">6. Supervisor (encargado)</h1>
+
+  <div class="callout role-e">
+    Usted coordina el flujo completo: crea proyectos, adjunta OC, revisa diseños, confirma tratamientos, gestiona catálogos, sube referencias de diseño, administra histórico y cierra proyectos. Tiene los mismos poderes operativos que el administrador en Bodega, excepto Usuarios e Historial global de inventario.
+  </div>
+
+  <h2>6.1 Panel y opciones</h2>
+  <figure>
+    <img src="imagenes/encargado/bodega.png" alt="Vista bodega encargado" />
+    <figcaption>Fig. 6.1 — Acceso al módulo Bodega</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/opciones.png" alt="Opciones encargado" />
+    <figcaption>Fig. 6.2 — Opciones del menú disponibles</figcaption>
+  </figure>
+
+  <h2>6.2 Catálogos: empresas, clientes y requisitores</h2>
+  <figure>
+    <img src="imagenes/encargado/empresas.png" alt="Empresas" />
+    <figcaption>Fig. 6.3 — Catálogo de empresas</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/requisitores.png" alt="Requisitores" />
+    <figcaption>Fig. 6.4 — Requisitores</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/cliente y urgencias.png" alt="Clientes y urgencias" />
+    <figcaption>Fig. 6.5 — Clientes y nivel de urgencia</figcaption>
+  </figure>
+
+  <h2>6.3 Crear proyectos y órdenes de compra</h2>
+  <figure>
+    <img src="imagenes/encargado/nuevo proyecto.png" alt="Nuevo proyecto" />
+    <figcaption>Fig. 6.6 — Alta de nuevo proyecto</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/proyectos.png" alt="Proyectos encargado" />
+    <figcaption>Fig. 6.7 — Listado de proyectos</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/orden.png" alt="Orden de compra" />
+    <figcaption>Fig. 6.8 — Detalle de orden de compra</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/adjuntar orden.png" alt="Adjuntar PDF orden" />
+    <figcaption>Fig. 6.9 — Adjuntar PDF de la orden de compra</figcaption>
+  </figure>
+
+  <h2>6.4 Revisión de diseño y tratamiento</h2>
+  <p>Cuando la diseñadora sube una entrega, revísela. Puede aprobar, pedir cambios o registrar tratamiento especial.</p>
+  <figure>
+    <img src="imagenes/encargado/revision de diseno.png" alt="Revisión diseño" />
+    <figcaption>Fig. 6.10 — Revisión de entrega de diseño</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/subir info a disenadora.png" alt="Info a diseñadora" />
+    <figcaption>Fig. 6.11 — Enviar información o referencia a diseñadora</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/revision y tratamiento.png" alt="Revisión y tratamiento" />
+    <figcaption>Fig. 6.12 — Revisión y tratamiento</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/confirmar tratamiento.png" alt="Confirmar tratamiento" />
+    <figcaption>Fig. 6.13 — Confirmar tratamiento</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/notificacion de revicion.png" alt="Notificación revisión" />
+    <figcaption>Fig. 6.14 — Notificación de entrega pendiente de revisión</figcaption>
+  </figure>
+
+  <h2>6.5 Plan de trabajo y reportes</h2>
+  <figure>
+    <img src="imagenes/encargado/plan de trabajo.png" alt="Plan trabajo encargado" />
+    <figcaption>Fig. 6.15 — Edición del plan de trabajo semanal</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/reportes.png" alt="Reportes encargado" />
+    <figcaption>Fig. 6.16 — Reportes de tiempos y contratiempos</figcaption>
+  </figure>
+
+  <h2>6.6 Nube e histórico</h2>
+  <figure>
+    <img src="imagenes/encargado/archivo nube.png" alt="Nube encargado" />
+    <figcaption>Fig. 6.17 — Archivos en la nube</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/encargado/historico.png" alt="Histórico encargado" />
+    <figcaption>Fig. 6.18 — Histórico (ambas áreas: diseño y programación)</figcaption>
+  </figure>
+
+  <h2>6.7 Flujo resumido — Supervisor</h2>
+  <div class="mermaid">
+flowchart TD
+  N[Nuevo proyecto + OC] --> D[Diseñadora trabaja]
+  D --> R{Revisar entrega}
+  R -->|Cambios| D
+  R -->|OK| PR[Programación]
+  PR --> M[Maquinado / Taller]
+  M --> C[Cierre formal con fotos]
+  </div>
+</section>
+
+<!-- 7 DIAGRAMAS PERMISOS -->
+<section id="s7" class="page-break">
+  <h1 class="doc-title">7. Diagramas y permisos por rol</h1>
+
+  <h2>7.1 Mapa de navegación por rol</h2>
+  <div class="mermaid">
+flowchart TB
+  subgraph Enc["Encargado"]
+    E1[Proyectos OC]
+    E2[Archivos ref.]
+    E3[Histórico ambas áreas]
+    E4[Revisión diseño]
+  end
+  subgraph Dis["Diseñadora"]
+    D1[Entregas ZIP]
+    D2[Histórico Diseño]
+    D3[Prioridades]
+  end
+  subgraph Prog["Programadora"]
+    P1[Asignar piezas]
+    P2[Maquinado]
+    P3[Taller]
+    P4[Histórico Programadora]
+  end
+  subgraph Op["Operador"]
+    O1[Prioridades]
+    O2[Taller]
+  end
+  </div>
+
+  <h2>7.2 Matriz de permisos (Bodega)</h2>
+  <table>
+    <tr><th>Función</th><th>Encargado</th><th>Diseñadora</th><th>Programadora</th><th>Operador</th></tr>
+    <tr><td>Crear / editar proyectos</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td>Adjuntar PDF orden compra</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td>Revisar entregas diseño</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td>Subir entrega diseño (ZIP)</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
+    <tr><td>Asignar piezas / programación</td><td>✓</td><td>—</td><td>✓</td><td>—</td></tr>
+    <tr><td>Cola Maquinado</td><td>✓</td><td>—</td><td>✓</td><td>—</td></tr>
+    <tr><td>Vista Taller</td><td>✓</td><td>—</td><td>✓</td><td>✓</td></tr>
+    <tr><td>Prioridades (cola)</td><td>—</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>Plan trabajo — editar</td><td>✓</td><td>ver</td><td>ver</td><td>ver</td></tr>
+    <tr><td>Reportes tiempos</td><td>✓</td><td>✓</td><td>✓</td><td>—</td></tr>
+    <tr><td>Histórico USB</td><td>✓ ambas</td><td>◐ diseño</td><td>◐ prog.</td><td>—</td></tr>
+    <tr><td>Cierre formal proyecto</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
+    <tr><td>Notas en historial</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+  </table>
+  <p><small>✓ = permitido · ◐ = parcial (solo su área) · — = no disponible</small></p>
+
+  <h2>7.3 Notificaciones</h2>
+  <div class="mermaid">
+sequenceDiagram
+  actor Sup as Supervisor
+  participant App as SOLAINO
+  actor Op as Diseñadora / Prog. / Operador
+  Sup->>App: Cambia prioridad proyecto
+  App->>Op: Campana — notificación
+  Op->>App: Abre proyecto actualizado
+  </div>
+</section>
+
+<!-- 8 GLOSARIO -->
+<section id="s8" class="page-break">
+  <h1 class="doc-title">8. Glosario y buenas prácticas</h1>
+
+  <h2>8.1 Términos</h2>
+  <table>
+    <tr><th>Término</th><th>Definición</th></tr>
+    <tr><td>OC</td><td>Orden de compra — documento PDF vinculado al proyecto</td></tr>
+    <tr><td>Folio</td><td>Identificador único del proyecto en bodega</td></tr>
+    <tr><td>Entrega</td><td>Conjunto de archivos (ZIP) de diseño o programación subidos al sistema</td></tr>
+    <tr><td>Nube</td><td>Archivos del flujo activo (no histórico)</td></tr>
+    <tr><td>Histórico</td><td>Respaldo indexado desde USB; áreas Diseño y Programadora</td></tr>
+    <tr><td>Prioridad 0–4</td><td>Urgencia del proyecto; 0 es la más alta</td></tr>
+    <tr><td>Perfilado / Armado / Detallado</td><td>Etapas de taller después del maquinado CNC</td></tr>
+  </table>
+
+  <h2>8.2 Buenas prácticas por rol</h2>
+  <ul>
+    <li><strong>Diseñadora:</strong> suba entregas completas; registre tiempos el mismo día; adjunte PDFs faltantes de inmediato.</li>
+    <li><strong>Programadora:</strong> confirme asignación antes de subir CNC; no deje piezas sin terminar programación en la cola de maquinado.</li>
+    <li><strong>Operador:</strong> revise prioridades al inicio del turno; use registro masivo cuando aplique; deje notas claras ante contratiempos.</li>
+    <li><strong>Supervisor:</strong> revise entregas en 24 h; mantenga OC y catálogos actualizados; cierre proyectos solo con fotos verificadas.</li>
+  </ul>
+
+  <h2>8.3 Seguridad</h2>
+  <ul>
+    <li>Una cuenta por persona; no comparta contraseña.</li>
+    <li>Cierre sesión en equipos compartidos.</li>
+    <li>Ante error de rol o permiso, contacte al administrador (no intente acceder por otra cuenta).</li>
+  </ul>
+</section>
+
+<footer class="doc-footer">
+  Manual de Usuario SOLAINO v1.0 — Módulo Bodega — Mayo 2026<br />
+  Uso interno. Imágenes: carpeta <code>imagenes/</code> (disenadora, programadora, encargado)
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'neutral',
+    securityLevel: 'loose',
+    flowchart: { curve: 'basis' }
+  });
+</script>
+</body>
+</html>

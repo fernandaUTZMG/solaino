@@ -1,0 +1,13 @@
+﻿node_modules/
+dist/
+build/
+dist-ssr/
+release/
+.next/
+.git/
+coverage/
+*.log
+**/pdf.worker*.mjs
+supabase/.temp/
+supabase/_archive/
+supabase/migrations/

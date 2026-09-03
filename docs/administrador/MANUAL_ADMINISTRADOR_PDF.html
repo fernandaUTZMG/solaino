@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manual del Administrador — SOLAINO</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --navy: #1e3a5f;
+      --navy-dark: #0f2744;
+      --accent: #853d85;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg-soft: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 11pt;
+      line-height: 1.55;
+      color: var(--text);
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 0 12mm 20mm;
+      background: #fff;
+    }
+    @media print {
+      body { padding: 0; max-width: none; }
+      .no-print { display: none !important; }
+      .page-break { page-break-before: always; }
+      figure img { max-height: 180mm; object-fit: contain; }
+      a { color: inherit; text-decoration: none; }
+    }
+    .cover {
+      min-height: 260mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(160deg, var(--navy-dark) 0%, var(--navy) 45%, #2d4a6f 100%);
+      color: #fff;
+      margin: 0 -12mm;
+      padding: 40mm 20mm;
+    }
+    .cover img.logo { max-width: 140px; margin-bottom: 24px; }
+    .cover h1 { font-size: 28pt; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .cover .subtitle { font-size: 14pt; opacity: 0.92; margin-bottom: 32px; }
+    .cover .meta { font-size: 10pt; opacity: 0.8; line-height: 1.8; }
+    h1.doc-title { color: var(--navy); font-size: 22pt; border-bottom: 3px solid var(--navy); padding-bottom: 8px; margin-top: 0; }
+    h2 { color: var(--navy); font-size: 15pt; margin-top: 28px; border-left: 4px solid var(--accent); padding-left: 12px; }
+    h3 { color: var(--navy-dark); font-size: 12pt; margin-top: 20px; }
+    h4 { font-size: 11pt; color: var(--muted); margin-top: 14px; }
+    p { margin: 0 0 10px; text-align: justify; }
+    ul, ol { margin: 0 0 12px; padding-left: 22px; }
+    li { margin-bottom: 4px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 16px;
+      font-size: 10pt;
+    }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: var(--navy); color: #fff; font-weight: 600; }
+    tr:nth-child(even) td { background: var(--bg-soft); }
+    figure {
+      margin: 16px 0 20px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      break-inside: avoid;
+    }
+    figure img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 0 auto;
+      border-radius: 4px;
+      border: 1px solid #eee;
+    }
+    figure.diagram-flow img {
+      max-width: 100%;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+    figure.diagram-flow { padding: 16px; background: #fafafa; }
+    figcaption {
+      margin-top: 10px;
+      font-size: 9.5pt;
+      color: var(--muted);
+      text-align: center;
+      font-style: italic;
+    }
+    .callout {
+      background: #eff6ff;
+      border-left: 4px solid #2563eb;
+      padding: 12px 16px;
+      margin: 14px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 10.5pt;
+    }
+    .callout.warn { background: #fffbeb; border-color: #d97706; }
+    .callout.ok { background: #ecfdf5; border-color: #059669; }
+    .toc { background: var(--bg-soft); padding: 20px 24px; border-radius: 8px; margin: 20px 0; }
+    .toc ol { columns: 2; column-gap: 32px; }
+    .toc a { color: var(--navy); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .mermaid { margin: 16px 0; text-align: center; }
+    .badge { display: inline-block; background: var(--navy); color: #fff; font-size: 8pt; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
+    .steps { counter-reset: step; list-style: none; padding: 0; }
+    .steps li { counter-increment: step; padding-left: 36px; position: relative; margin-bottom: 10px; }
+    .steps li::before {
+      content: counter(step);
+      position: absolute; left: 0; top: 0;
+      width: 24px; height: 24px;
+      background: var(--navy); color: #fff;
+      border-radius: 50%; font-size: 9pt; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .print-bar {
+      position: sticky; top: 0; z-index: 100;
+      background: #fef3c7; border-bottom: 1px solid #fcd34d;
+      padding: 10px 16px; text-align: center; font-size: 10pt;
+    }
+    .print-bar button {
+      background: var(--navy); color: #fff; border: none;
+      padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;
+      margin-left: 12px;
+    }
+    footer.doc-footer {
+      margin-top: 40px; padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 9pt; color: var(--muted); text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="print-bar no-print">
+  Manual SOLAINO — Para PDF: espere que carguen los diagramas, luego <strong>Ctrl+P</strong> → Guardar como PDF.
+  <button type="button" onclick="window.print()">Imprimir / PDF</button>
+</div>
+
+<!-- PORTADA -->
+<section class="cover page-break">
+  <img class="logo" src="imagenes/logo_solaino.png" alt="Logo SOLAINO" />
+  <h1>Manual del Administrador</h1>
+  <p class="subtitle">Sistema SOLAINO — inventario-solaino</p>
+  <p class="meta">
+    Rol: <strong>Administrador</strong> (admin)<br />
+    Versión del documento: 1.2 — Mayo 2026<br />
+    Uso interno — SOLAINO Manufactura
+  </p>
+</section>
+
+<!-- ÍNDICE -->
+<section class="page-break">
+  <h1 class="doc-title">Tabla de contenidos</h1>
+  <nav class="toc">
+    <ol>
+      <li><a href="#s1">1. Introducción al sistema</a></li>
+      <li><a href="#s2">2. Acceso e interfaz general</a></li>
+      <li><a href="#s3">3. Roles y permisos</a></li>
+      <li><a href="#s4">4. Panel Inicio</a></li>
+      <li><a href="#s5">5. Gestión de usuarios</a></li>
+      <li><a href="#s6">6. Historial de auditoría</a></li>
+      <li><a href="#s7">7. Módulo Inventario</a></li>
+      <li><a href="#s8">8. Solicitudes de producto</a></li>
+      <li><a href="#s9">9. Módulo Bodega — visión general</a></li>
+      <li><a href="#s10">10. Proyectos y órdenes de compra</a></li>
+      <li><a href="#s11">11. Etapa Diseño (supervisión)</a></li>
+      <li><a href="#s12">12. Etapa Programación CNC</a></li>
+      <li><a href="#s13">13. Etapa Maquinado</a></li>
+      <li><a href="#s14">14. Etapa Taller y cierre</a></li>
+      <li><a href="#s15">15. Archivos, Nube, Histórico y Plan</a></li>
+      <li><a href="#s16">16. Reportes y catálogos</a></li>
+      <li><a href="#s17">17. Diagramas de flujo</a></li>
+      <li><a href="#s18">18. Indicadores, buenas prácticas y glosario</a></li>
+    </ol>
+  </nav>
+</section>
+
+<!-- 1 INTRO -->
+<section id="s1" class="page-break">
+  <h1 class="doc-title">1. Introducción al sistema</h1>
+  <p><strong>SOLAINO</strong> (proyecto <em>inventario-solaino</em>) es una aplicación web/de escritorio que integra dos áreas de la planta en una sola plataforma conectada a la nube (Supabase + Cloudflare R2 para archivos grandes).</p>
+
+  <table>
+    <tr><th>Módulo</th><th>Propósito</th><th>Usuarios típicos</th></tr>
+    <tr><td><strong>Inventario</strong></td><td>Control de productos, entradas, salidas, embarques y solicitudes de material</td><td>Admin, usuario de almacén</td></tr>
+    <tr><td><strong>Bodega</strong></td><td>Seguimiento de proyectos de manufactura: diseño, programación CNC, maquinado, taller, tiempos, archivos y plan de trabajo</td><td>Encargado, diseñadora, programadora, operador</td></tr>
+  </table>
+
+  <p>El <strong>Administrador</strong> es el rol de mayor nivel. Puede operar <em>ambos</em> módulos y además: crear y eliminar usuarios, revisar auditoría global, resolver solicitudes de todo el personal, exportar inventario, gestionar catálogos y supervisar el flujo completo de bodega con los mismos poderes operativos que el encargado, más herramientas exclusivas de administración.</p>
+
+  <div class="mermaid">
+mindmap
+  root((Administrador SOLAINO))
+    Administración
+      Usuarios y roles
+      Historial auditoría
+      Recuperación contraseñas
+      Panel Inicio
+    Inventario
+      CRUD productos
+      Entradas y embarques
+      Ajustes de stock
+      Exportación CSV
+      Solicitudes globales
+    Bodega
+      Proyectos y OC
+      Diseño y revisión
+      Programación CNC
+      Maquinado y Taller
+      Archivos Nube Histórico
+      Plan de trabajo
+  </div>
+</section>
+
+<!-- 2 ACCESO -->
+<section id="s2" class="page-break">
+  <h1 class="doc-title">2. Acceso e interfaz general</h1>
+
+  <h2>2.1 Inicio de sesión</h2>
+  <ol class="steps">
+    <li>Abra la aplicación SOLAINO (navegador o ejecutable de escritorio instalado en planta).</li>
+    <li>Ingrese su <strong>usuario</strong> (nombre corto, sin @) o el correo asociado a la cuenta.</li>
+    <li>Ingrese su <strong>contraseña</strong> y confirme.</li>
+    <li>El sistema valida credenciales en Supabase Auth y carga el rol desde la tabla de perfiles.</li>
+  </ol>
+
+  <figure>
+    <img src="imagenes/login.png" alt="Pantalla de inicio de sesión" />
+    <figcaption>Figura 2.1 — Pantalla de inicio de sesión SOLAINO</figcaption>
+  </figure>
+
+  <h2>2.2 Barra de navegación del administrador</h2>
+  <p>Tras autenticarse como administrador verá:</p>
+  <ul>
+    <li><strong>Inicio</strong>, <strong>Historial</strong>, <strong>Usuarios</strong> — exclusivos del admin</li>
+    <li>Grupo <strong>Inventario</strong> → Inventario, Solicitudes</li>
+    <li>Grupo <strong>Bodega</strong> → Proyectos, Archivos, Reportes, Nube, Histórico, Plan de trabajo, Maquinado, Taller</li>
+    <li><strong>Campana de notificaciones</strong> junto al menú Bodega</li>
+  </ul>
+
+  <figure>
+    <img src="imagenes/modulos.png" alt="Módulos de navegación" />
+    <figcaption>Figura 2.2 — Módulos disponibles para el administrador</figcaption>
+  </figure>
+
+  <div class="callout warn">
+    <strong>Importante:</strong> El administrador <em>no</em> ve la vista «Prioridades» del menú (cola personal de diseñadora, programadora y operador). Sí puede cambiar prioridades desde Proyectos o Archivos y gestionar el Plan de trabajo bodega.
+  </div>
+
+  <h2>2.3 Barra superior y cierre de sesión</h2>
+  <p>La barra superior muestra el usuario conectado, el indicador de conexión a Supabase y el botón para <strong>cerrar sesión</strong>. En equipos compartidos, cierre sesión al terminar. Durante subidas largas de archivos (Histórico), no cierre sesión hasta que termine el proceso.</p>
+</section>
+
+<!-- 3 ROLES -->
+<section id="s3" class="page-break">
+  <h1 class="doc-title">3. Roles y permisos</h1>
+
+  <table>
+    <tr><th>Rol interno</th><th>Nombre en pantalla</th><th>Ámbito</th></tr>
+    <tr><td>admin</td><td>Administrador</td><td>Todo el sistema</td></tr>
+    <tr><td>user</td><td>Usuario</td><td>Solo inventario (consulta, entradas, salidas, solicitudes propias)</td></tr>
+    <tr><td>encargado</td><td>Supervisor / encargado (Bodega)</td><td>Bodega completa + catálogos (sin Usuarios, Historial global, Solicitudes globales)</td></tr>
+    <tr><td>disenadora</td><td>Diseñadora (Bodega)</td><td>Diseño, piezas, histórico diseño</td></tr>
+    <tr><td>programadora_maquinaria</td><td>Programadora maquinaria</td><td>Programación, maquinado, histórico programación</td></tr>
+    <tr><td>operador_bodega</td><td>Operador taller</td><td>Maquinado y etapas de taller</td></tr>
+  </table>
+
+  <h2>3.1 Administrador vs Encargado</h2>
+  <table>
+    <tr><th>Capacidad</th><th>Admin</th><th>Encargado</th></tr>
+    <tr><td>Panel Inicio</td><td>✓</td><td>✗</td></tr>
+    <tr><td>Usuarios / Historial global</td><td>✓</td><td>✗</td></tr>
+    <tr><td>Solicitudes (todas)</td><td>✓</td><td>✗</td></tr>
+    <tr><td>Inventario CRUD completo</td><td>✓</td><td>✗</td></tr>
+    <tr><td>Bodega operativa</td><td>✓</td><td>✓</td></tr>
+    <tr><td>Histórico (ambas áreas)</td><td>✓</td><td>✓</td></tr>
+    <tr><td>Plan de trabajo — editar / exportar</td><td>✓</td><td>✓</td></tr>
+  </table>
+
+  <div class="mermaid">
+flowchart TB
+  ADMIN["admin — Administrador global"]
+  ENC["encargado — Supervisor bodega"]
+  DIS["disenadora"]
+  PROG["programadora_maquinaria"]
+  OPE["operador_bodega"]
+  USER["user — Usuario inventario"]
+  ADMIN -->|"Incluye encargado + admin tools"| ENC
+  ADMIN -->|"Inventario + usuarios"| USER
+  ENC --> DIS & PROG & OPE
+  </div>
+</section>
+
+<!-- 4 INICIO -->
+<section id="s4" class="page-break">
+  <h1 class="doc-title">4. Panel Inicio</h1>
+  <p><span class="badge">Ruta</span> Barra principal → <strong>Inicio</strong></p>
+  <p>Dashboard de control con nombre del administrador, rol, hora de entrada y tarjetas de acceso rápido con contadores.</p>
+  <table>
+    <tr><th>Tarjeta</th><th>Acción</th><th>Contador</th></tr>
+    <tr><td>Inventario</td><td>Ir al módulo Inventario</td><td>—</td></tr>
+    <tr><td>Bodega</td><td>Ir a Proyectos</td><td>—</td></tr>
+    <tr><td>Usuarios registrados</td><td>Ir a Usuarios</td><td>Total perfiles</td></tr>
+    <tr><td>Clientes (empresa)</td><td>Catálogo Empresas</td><td>Total empresas</td></tr>
+    <tr><td>Requisitor</td><td>Catálogo Requisitores</td><td>Total requisitores</td></tr>
+  </table>
+  <p>Use este panel como <strong>punto de control diario</strong> antes de entrar a tareas operativas.</p>
+</section>
+
+<!-- 5 USUARIOS -->
+<section id="s5" class="page-break">
+  <h1 class="doc-title">5. Gestión de usuarios</h1>
+  <p><span class="badge">Ruta</span> Barra principal → <strong>Usuarios</strong></p>
+
+  <h2>5.1 Listado y búsqueda</h2>
+  <p>Tabla paginada con usuario, correo, rol y fecha de alta. Use la búsqueda por usuario, correo, rol o ID. Botón <strong>Recargar</strong> para actualizar.</p>
+
+  <h2>5.2 Crear usuario</h2>
+  <ol class="steps">
+    <li>Clic en <strong>Nuevo usuario</strong>.</li>
+    <li>Usuario: mínimo 3 caracteres (se normaliza a minúsculas).</li>
+    <li>Seleccione el <strong>rol</strong> según la función del personal (ver tabla §5.6).</li>
+    <li>Contraseña y confirmación: mínimo 6 caracteres.</li>
+    <li>Confirme la creación. El sistema crea cuenta en Auth + perfil.</li>
+    <li>Comunique credenciales por canal seguro (presencial, teléfono interno).</li>
+  </ol>
+
+  <figure>
+    <img src="imagenes/crear usuario.png" alt="Crear usuario" />
+    <figcaption>Figura 5.1 — Formulario de creación de usuario</figcaption>
+  </figure>
+
+  <h2>5.3 Editar y eliminar</h2>
+  <p>Desde el icono de edición puede cambiar usuario, rol y contraseña. No puede eliminar su propia cuenta mientras está conectado con ese usuario. Eliminar usuario es <strong>irreversible</strong> (borra Auth + perfil).</p>
+
+  <figure>
+    <img src="imagenes/edit_usuarios y contra.png" alt="Editar usuario" />
+    <figcaption>Figura 5.2 — Edición de usuario y contraseña</figcaption>
+  </figure>
+
+  <h2>5.4 Recuperación de contraseña</h2>
+  <p>Sección destacada en amarillo: los usuarios solicitan recuperación desde login; el admin ve la lista, establece nueva contraseña, comunica al usuario y marca <strong>Atendida</strong>. Badge numérico en menú Usuarios indica pendientes.</p>
+
+  <h2>5.5 Guía de asignación de roles</h2>
+  <table>
+    <tr><th>Si la persona…</th><th>Rol</th></tr>
+    <tr><td>Gestiona todo el sistema</td><td>admin</td></tr>
+    <tr><td>Solo pide material del almacén</td><td>user</td></tr>
+    <tr><td>Supervisa bodega y OC</td><td>encargado</td></tr>
+    <tr><td>Entrega diseños y piezas</td><td>disenadora</td></tr>
+    <tr><td>Programa CNC y tiempos</td><td>programadora_maquinaria</td></tr>
+    <tr><td>Opera torno/CNC y taller</td><td>operador_bodega</td></tr>
+  </table>
+
+  <div class="mermaid">
+flowchart TD
+  A[Usuarios → Nuevo usuario] --> B{Datos válidos?}
+  B -->|No| E[Mostrar error]
+  B -->|Sí| C[Crear Auth + perfil]
+  C --> D[Comunicar credenciales]
+  </div>
+</section>
+
+<!-- 6 HISTORIAL -->
+<section id="s6" class="page-break">
+  <h1 class="doc-title">6. Historial de auditoría</h1>
+  <p><span class="badge">Ruta</span> Barra principal → <strong>Historial</strong></p>
+  <p>Herramienta de supervisión sobre acciones registradas en inventario y otras operaciones auditables.</p>
+  <ol class="steps">
+    <li>Seleccione un usuario del listado.</li>
+    <li>Revise la bitácora: crear, modificar, eliminar, exportaciones.</li>
+    <li>Filtre por tipo o busque por texto (producto, fecha, acción).</li>
+    <li>Solo admin puede <strong>limpiar historial</strong> de un usuario (irreversible).</li>
+  </ol>
+
+  <figure>
+    <img src="imagenes/historial1.png" alt="Historial paso 1" />
+    <figcaption>Figura 6.1 — Selección de usuario en Historial</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/historial2.png" alt="Historial paso 2" />
+    <figcaption>Figura 6.2 — Detalle de acciones auditadas</figcaption>
+  </figure>
+</section>
+
+<!-- 7 INVENTARIO -->
+<section id="s7" class="page-break">
+  <h1 class="doc-title">7. Módulo Inventario</h1>
+  <p><span class="badge">Ruta</span> Inventario → <strong>Inventario</strong></p>
+
+  <h2>7.1 Pantalla principal y alertas</h2>
+  <figure>
+    <img src="imagenes/inventario/inventario inicio_ y alertas.png" alt="Inventario inicio" />
+    <figcaption>Figura 7.1 — Vista principal del inventario con alertas de stock</figcaption>
+  </figure>
+
+  <h2>7.2 Capacidades exclusivas del administrador</h2>
+  <ul>
+    <li><strong>Crear</strong> productos nuevos</li>
+    <li><strong>Editar</strong> cualquier campo (incl. edición inline en tabla)</li>
+    <li><strong>Eliminar</strong> productos</li>
+    <li><strong>Ajuste inventario</strong> — corrección administrativa de existencias</li>
+    <li><strong>Exportación CSV</strong> — queda registrada en auditoría</li>
+  </ul>
+
+  <figure>
+    <img src="imagenes/inventario/materiales_inventario.png" alt="Materiales inventario" />
+    <figcaption>Figura 7.2 — Tabla de materiales / productos</figcaption>
+  </figure>
+
+  <h2>7.3 Crear producto</h2>
+  <figure>
+    <img src="imagenes/inventario/nuevo_producto1.png" alt="Nuevo producto 1" />
+    <figcaption>Figura 7.3 — Alta de producto (parte 1)</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/inventario/nuevo_producto2.png" alt="Nuevo producto 2" />
+    <figcaption>Figura 7.4 — Alta de producto (parte 2)</figcaption>
+  </figure>
+
+  <h2>7.4 Ajuste de inventario</h2>
+  <figure>
+    <img src="imagenes/inventario/ajuste_inventario.png" alt="Ajuste inventario" />
+    <figcaption>Figura 7.5 — Corrección administrativa de stock</figcaption>
+  </figure>
+
+  <h2>7.5 Entradas de producto</h2>
+  <figure>
+    <img src="imagenes/inventario/registrar_entradas.png" alt="Registrar entradas" />
+    <figcaption>Figura 7.6 — Registro de entradas al almacén</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/inventario/registrar_inventerio2.png" alt="Registrar entradas 2" />
+    <figcaption>Figura 7.7 — Confirmación de entradas</figcaption>
+  </figure>
+
+  <h2>7.6 Embarque / salida</h2>
+  <figure>
+    <img src="imagenes/inventario/embarque.png" alt="Embarque" />
+    <figcaption>Figura 7.8 — Embarque / salida de material</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/inventario/embarque2.png" alt="Embarque 2" />
+    <figcaption>Figura 7.9 — Selección de productos para embarque</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/inventario/embarque3.png" alt="Embarque 3" />
+    <figcaption>Figura 7.10 — Confirmación de embarque</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/inventario/confirmar_carrito.png" alt="Confirmar carrito" />
+    <figcaption>Figura 7.11 — Carrito de salida confirmado</figcaption>
+  </figure>
+
+  <h2>7.7 Acciones por producto e historial</h2>
+  <figure>
+    <img src="imagenes/inventario/acciones_producto.png" alt="Acciones producto" />
+    <figcaption>Figura 7.12 — Editar, eliminar e historial por fila</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/inventario/historial_producto.png" alt="Historial producto" />
+    <figcaption>Figura 7.13 — Movimientos del producto</figcaption>
+  </figure>
+
+  <h2>7.8 Exportación CSV</h2>
+  <figure>
+    <img src="imagenes/inventario/exportacion_excel_inventario.png" alt="Exportación CSV" />
+    <figcaption>Figura 7.14 — Exportación CSV / Excel del inventario</figcaption>
+  </figure>
+</section>
+
+<!-- 8 SOLICITUDES -->
+<section id="s8" class="page-break">
+  <h1 class="doc-title">8. Solicitudes de producto</h1>
+  <p><span class="badge">Ruta</span> Inventario → <strong>Solicitudes</strong> — <strong>Exclusivo del administrador</strong> (ver todas).</p>
+
+  <figure>
+    <img src="imagenes/inventario/solicitud_producto.png" alt="Solicitudes" />
+    <figcaption>Figura 8.1 — Panel de solicitudes de producto</figcaption>
+  </figure>
+
+  <table>
+    <tr><th>Estado</th><th>Significado</th></tr>
+    <tr><td>Pendiente</td><td>Esperando decisión del admin</td></tr>
+    <tr><td>Aprobada</td><td>Autorizada; procede compra/entrega</td></tr>
+    <tr><td>Rechazada</td><td>No procede</td></tr>
+    <tr><td>Entregada</td><td>Material surtido</td></tr>
+  </table>
+
+  <p><strong>Acciones:</strong> Compra hecha, Aprobar, Entregar, Rechazar, Eliminar del panel. Badge en menú indica pendientes.</p>
+
+  <div class="mermaid">
+stateDiagram-v2
+  [*] --> Pendiente
+  Pendiente --> Aprobada: Aprobar
+  Pendiente --> Rechazada: Rechazar
+  Aprobada --> Entregada: Entregar
+  Pendiente --> [*]: Eliminar
+  </div>
+</section>
+
+<!-- 9 BODEGA GENERAL -->
+<section id="s9" class="page-break">
+  <h1 class="doc-title">9. Módulo Bodega — visión general</h1>
+  <p>El administrador tiene acceso completo a bodega con permisos de supervisor (encargado) más herramientas globales. Antes de entrar al detalle de cada pantalla, revise el <strong>diagrama de flujo oficial</strong> del proceso completo: desde la orden de compra hasta el cierre del proyecto.</p>
+
+  <h2>9.0 Diagrama de flujo — Lógica de la bodega</h2>
+  <p>El flujo general de un proyecto en SOLAINO sigue esta secuencia:</p>
+  <p style="text-align:center;font-weight:600;color:var(--navy);margin:12px 0 16px;">
+    OC/SNOC → Diseño → Programación → CNC / Torno / Perfilado → Maquinado → Detallado → Armado → Fin
+  </p>
+
+  <table>
+    <tr><th>Símbolo</th><th>Significado</th></tr>
+    <tr><td>Óvalo</td><td>Inicio / Fin del proceso</td></tr>
+    <tr><td>Rectángulo</td><td>Acción o etapa operativa</td></tr>
+    <tr><td>Rombo</td><td>Decisión (Sí / No)</td></tr>
+    <tr><td>Paralelogramo</td><td>Datos, archivos o adjuntos obligatorios</td></tr>
+  </table>
+
+  <figure class="diagram-flow">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-1.png" alt="Diagrama flujo portada y leyenda" />
+    <figcaption>Figura 9.0a — Diagrama de flujo del proceso de maquinado (portada y simbología)</figcaption>
+  </figure>
+
+  <figure class="diagram-flow page-break">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-2.png" alt="Flujo diseño y revisión supervisor" />
+    <figcaption>Figura 9.0b — Fase 1: OC/SNOC, información de diseño, entrega SLDPRT, revisión del supervisor y elección de acabado</figcaption>
+  </figure>
+
+  <div class="callout">
+    <strong>Punto clave — Revisión del supervisor:</strong> Si el supervisor <em>no acepta</em> el diseño, la pieza regresa a la diseñadora para corrección. Solo con diseño aprobado y acabado definido continúa a programación.
+  </div>
+
+  <figure class="diagram-flow page-break">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-3.png" alt="Flujo programación y maquinado" />
+    <figcaption>Figura 9.0c — Fase 2: Programación (ruta CNC, Torno o Perfilado), adjuntos de archivos, inicio y fin de maquinado</figcaption>
+  </figure>
+
+  <div class="callout ok">
+    <strong>Rutas de programación:</strong><br />
+    • <strong>CNC</strong> — Inicio programación → Perfil → Fin programación → Adjuntar archivo.<br />
+    • <strong>Torno</strong> — Flujo directo de programación torno.<br />
+    • <strong>Perfilado</strong> — Perfilado manual + PDF plano obligatorio (requerido también si la pieza pasa de Perfilado a CNC).
+  </div>
+
+  <figure class="diagram-flow page-break">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-4.png" alt="Flujo detallado armado y cierre" />
+    <figcaption>Figura 9.0d — Fase 3: Control de tiempo excedido, Detallado, Armado, foto de armado completo y fin de proyecto</figcaption>
+  </figure>
+
+  <figure class="diagram-flow page-break">
+    <img src="imagenes/bodega/diagrama_flujo_maquinado-5.png" alt="Casos especiales perfilado y PDF" />
+    <figcaption>Figura 9.0e — Casos especiales: Perfilado → CNC con PDF olvidado; bloqueos y alertas por etapa</figcaption>
+  </figure>
+
+  <div class="callout warn">
+    <strong>Casos especiales a vigilar (admin / encargado):</strong><br />
+    • <strong>Perfilado → CNC y PDF olvidado:</strong> el sistema puede bloquear programación o alertar en perfilado/maquinado.<br />
+    • <strong>Caso Perfilado luego CNC:</strong> pieza pasa primero por perfilado manual + PDF; si luego va a CNC, debe adjuntar archivo de programación antes de maquinado.<br />
+    • <strong>PDF olvidado:</strong> bloqueo en Programación (antes), alerta en Perfilado o alerta en Maquinado según la etapa.
+  </div>
+
+  <p style="font-size:9.5pt;color:var(--muted);margin-top:8px;">
+    Fuente: <code>Diagramas de Flujo - Maquinado.pdf</code> — también disponible en
+    <code>imagenes/bodega/Diagramas de Flujo - Maquinado.pdf</code>
+  </p>
+
+  <h2>9.1 Vista principal de Bodega</h2>
+  <figure>
+    <img src="imagenes/bodega/bodega_inicio.png" alt="Bodega inicio" />
+    <figcaption>Figura 9.1 — Vista principal de Bodega / Proyectos</figcaption>
+  </figure>
+
+  <h2>9.2 Resumen del flujo (referencia rápida)</h2>
+  <div class="mermaid">
+flowchart LR
+  OC[Registrar OC + PDF] --> PROY[Crear proyecto]
+  PROY --> DIS[Diseño]
+  DIS --> REV{Revisión supervisor}
+  REV -->|Aprobado| PROG[Programación]
+  REV -->|Cambios| DIS
+  PROG --> MAQ[Maquinado]
+  MAQ --> TAL[Taller]
+  TAL --> FOT[Fotos]
+  FOT --> FIN[Finalizar]
+  </div>
+
+  <h2>9.3 Etapas del flujo y rol del administrador</h2>
+  <table>
+    <tr><th>Etapa</th><th>Responsable principal</th><th>Admin puede…</th></tr>
+    <tr><td>Diseño</td><td>Diseñadora</td><td>Revisar entregas, aprobar, definir tratamientos</td></tr>
+    <tr><td>Programación</td><td>Programadora</td><td>Asignar rutas CNC/Torno, tiempos, archivos</td></tr>
+    <tr><td>Maquinado</td><td>Operador / programadora</td><td>Supervisar cola y tiempos reales</td></tr>
+    <tr><td>Taller</td><td>Operador</td><td>Perfilado, detallado, armado, fotos</td></tr>
+    <tr><td>Cierre</td><td>Encargado / admin</td><td>Finalizar proyecto formalmente</td></tr>
+  </table>
+</section>
+
+<!-- 10 PROYECTOS -->
+<section id="s10" class="page-break">
+  <h1 class="doc-title">10. Proyectos y órdenes de compra</h1>
+
+  <h2>10.1 Catálogo de clientes</h2>
+  <figure>
+    <img src="imagenes/bodega/bodega_clientes.png" alt="Clientes bodega" />
+    <figcaption>Figura 10.1 — Empresas cliente vinculadas a proyectos</figcaption>
+  </figure>
+
+  <h2>10.2 Registrar orden de compra (OC)</h2>
+  <figure>
+    <img src="imagenes/bodega/adjuntar_OC.png" alt="Adjuntar OC" />
+    <figcaption>Figura 10.2 — Adjuntar PDF de orden de compra</figcaption>
+  </figure>
+
+  <h2>10.3 Proyectos vinculados a OC</h2>
+  <figure>
+    <img src="imagenes/bodega/proyectos_oc.png" alt="Proyectos OC" />
+    <figcaption>Figura 10.3 — Proyectos asociados a una OC</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/bodega_proyectos.png" alt="Lista proyectos" />
+    <figcaption>Figura 10.4 — Listado general de proyectos</figcaption>
+  </figure>
+
+  <h2>10.4 Crear proyecto</h2>
+  <figure>
+    <img src="imagenes/bodega/nuevo_proyecto.png" alt="Nuevo proyecto" />
+    <figcaption>Figura 10.5 — Creación manual de proyecto</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/nuevo_proyecto_vinculado.png" alt="Proyecto vinculado" />
+    <figcaption>Figura 10.6 — Proyecto vinculado a partida de OC</figcaption>
+  </figure>
+
+  <h2>10.5 Prioridad y avance</h2>
+  <p>Asigne prioridad 0–4 al proyecto. Al cambiarla, diseñadora, programadora y operador reciben aviso en la campana. Revise avance global del proyecto.</p>
+  <figure>
+    <img src="imagenes/bodega/orden_avance de proyectos.png" alt="Orden y avance" />
+    <figcaption>Figura 10.7 — Orden de prioridad y avance de proyectos</figcaption>
+  </figure>
+</section>
+
+<!-- 11 DISENO -->
+<section id="s11" class="page-break">
+  <h1 class="doc-title">11. Etapa Diseño (supervisión administrador)</h1>
+
+  <figure>
+    <img src="imagenes/bodega/diseno/diseno1.png" alt="Pestaña diseño" />
+    <figcaption>Figura 11.1 — Pestaña Diseño dentro del proyecto</figcaption>
+  </figure>
+
+  <h2>11.1 Archivo de referencia para diseñadora</h2>
+  <figure>
+    <img src="imagenes/bodega/diseno/archivo_para disenadora.png" alt="Archivo diseñadora" />
+    <figcaption>Figura 11.2 — Archivo de referencia del cliente</figcaption>
+  </figure>
+
+  <h2>11.2 Alertas y entregas pendientes</h2>
+  <figure>
+    <img src="imagenes/bodega/diseno/alerta para disenadora.png" alt="Alerta diseño" />
+    <figcaption>Figura 11.3 — Alertas de entrega pendiente (badge ! en menú Bodega)</figcaption>
+  </figure>
+
+  <h2>11.3 Subida de diseño (vista operativa)</h2>
+  <figure>
+    <img src="imagenes/bodega/diseno/subir_archivo_disenadora.png" alt="Subir diseño" />
+    <figcaption>Figura 11.4 — Subida de ZIP / archivos de diseño</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/diseno/info_subida_disenadora.png" alt="Info subida" />
+    <figcaption>Figura 11.5 — Información de la entrega de diseño</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/diseno/entrega_diseno.png" alt="Entrega diseño" />
+    <figcaption>Figura 11.6 — Registro de entrega de diseño</figcaption>
+  </figure>
+
+  <h2>11.4 Revisión del supervisor</h2>
+  <figure>
+    <img src="imagenes/bodega/diseno/revision_carpeta diseno.png" alt="Revisión carpeta" />
+    <figcaption>Figura 11.7 — Revisión de carpeta / ZIP de diseño</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/diseno/tiempo_revision_diseno.png" alt="Tiempo revisión" />
+    <figcaption>Figura 11.8 — Tiempos de revisión de diseño</figcaption>
+  </figure>
+
+  <h2>11.5 Tratamientos y acabados</h2>
+  <figure>
+    <img src="imagenes/bodega/diseno/definiri_anodizado_etc.png" alt="Tratamientos" />
+    <figcaption>Figura 11.9 — Definir anodizado y tratamientos</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/diseno/confirmar_tratamiento.png" alt="Confirmar tratamiento" />
+    <figcaption>Figura 11.10 — Confirmación de tratamiento</figcaption>
+  </figure>
+
+  <h2>11.6 Notas e historial de avance</h2>
+  <figure>
+    <img src="imagenes/bodega/diseno/notas_historial_avance_diseno.png" alt="Notas diseño" />
+    <figcaption>Figura 11.11 — Notas e historial de avance en diseño</figcaption>
+  </figure>
+</section>
+
+<!-- 12 PROGRAMACION -->
+<section id="s12" class="page-break">
+  <h1 class="doc-title">12. Etapa Programación CNC</h1>
+
+  <figure>
+    <img src="imagenes/bodega/programacion/inicio.png" alt="Programación inicio" />
+    <figcaption>Figura 12.1 — Vista inicial de Programación</figcaption>
+  </figure>
+
+  <h2>12.1 Asignación de piezas y rutas</h2>
+  <figure>
+    <img src="imagenes/bodega/programacion/asignar piezas.png" alt="Asignar piezas" />
+    <figcaption>Figura 12.2 — Asignar piezas a CNC o Torno</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/programacion/asignar_perfilado o no.png" alt="Perfilado" />
+    <figcaption>Figura 12.3 — Decidir si la pieza va a perfilado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/programacion/confirmar asignacion.png" alt="Confirmar asignación" />
+    <figcaption>Figura 12.4 — Confirmar asignación CNC/Torno</figcaption>
+  </figure>
+
+  <h2>12.2 Cambio de módulo CNC / Torno</h2>
+  <figure>
+    <img src="imagenes/bodega/programacion/opcion_cambiar_cnc_torno1.png" alt="Cambiar CNC 1" />
+    <figcaption>Figura 12.5 — Opción cambiar entre CNC y Torno</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/programacion/opcion_cambiar_cnc_torno2.png" alt="Cambiar CNC 2" />
+    <figcaption>Figura 12.6 — Confirmación de cambio de módulo</figcaption>
+  </figure>
+
+  <h2>12.3 Tiempos de programación</h2>
+  <figure>
+    <img src="imagenes/bodega/programacion/1_tiempo_programacion.png" alt="Tiempo programación" />
+    <figcaption>Figura 12.7 — Panel de tiempos de programación</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/programacion/inicio de tiempo_programacion.png" alt="Inicio tiempo" />
+    <figcaption>Figura 12.8 — Inicio de cronómetro de programación</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/programacion/tiempo_estimado.png" alt="Tiempo estimado" />
+    <figcaption>Figura 12.9 — Tiempo estimado por pieza</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/programacion/tiempo_programacion de piezas.png" alt="Tiempo piezas" />
+    <figcaption>Figura 12.10 — Tiempos de programación por pieza</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/programacion/notas_historial.png" alt="Notas programación" />
+    <figcaption>Figura 12.11 — Notas e historial en programación</figcaption>
+  </figure>
+</section>
+
+<!-- 13 MAQUINADO -->
+<section id="s13" class="page-break">
+  <h1 class="doc-title">13. Etapa Maquinado</h1>
+  <p><span class="badge">Ruta</span> Bodega → <strong>Maquinado</strong> — Cola global de piezas en máquina.</p>
+
+  <figure>
+    <img src="imagenes/bodega/Maquinado/inicio.png" alt="Maquinado inicio" />
+    <figcaption>Figura 13.1 — Cola de maquinado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/Maquinado/asignacion_time_maquina.png" alt="Asignación máquina" />
+    <figcaption>Figura 13.2 — Asignación de tiempo en máquina</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/Maquinado/inicio de tiempo_tiempo estimado.png" alt="Inicio tiempo máquina" />
+    <figcaption>Figura 13.3 — Inicio de tiempo y estimado en máquina</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/Maquinado/terminacion_time.png" alt="Terminación maquinado" />
+    <figcaption>Figura 13.4 — Terminación de tiempo de maquinado</figcaption>
+  </figure>
+</section>
+
+<!-- 14 TALLER -->
+<section id="s14" class="page-break">
+  <h1 class="doc-title">14. Etapa Taller y cierre de proyecto</h1>
+  <p><span class="badge">Ruta</span> Bodega → <strong>Taller</strong></p>
+
+  <figure>
+    <img src="imagenes/bodega/taller/taller_inicio.png" alt="Taller inicio" />
+    <figcaption>Figura 14.1 — Vista inicial de Taller</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/taller/piezas_rutas y estados.png" alt="Rutas piezas" />
+    <figcaption>Figura 14.2 — Piezas con rutas y estados</figcaption>
+  </figure>
+
+  <h2>14.1 Perfilado</h2>
+  <figure>
+    <img src="imagenes/bodega/taller/inicio_perfilado.png" alt="Inicio perfilado" />
+    <figcaption>Figura 14.3 — Inicio de perfilado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/taller/fin_pza_perfilado.png" alt="Fin perfilado" />
+    <figcaption>Figura 14.4 — Fin de pieza en perfilado</figcaption>
+  </figure>
+
+  <h2>14.2 Detallado</h2>
+  <figure>
+    <img src="imagenes/bodega/taller/inicio_pza_detallado.png" alt="Inicio detallado" />
+    <figcaption>Figura 14.5 — Inicio de detallado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/taller/fin_detallado a armado.png" alt="Fin detallado" />
+    <figcaption>Figura 14.6 — Fin detallado → pasa a armado</figcaption>
+  </figure>
+
+  <h2>14.3 Armado</h2>
+  <figure>
+    <img src="imagenes/bodega/taller/inicio_pzas_armado.png" alt="Inicio armado" />
+    <figcaption>Figura 14.7 — Inicio de armado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/taller/pza_en armado.png" alt="Pieza en armado" />
+    <figcaption>Figura 14.8 — Pieza en proceso de armado</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/taller/fin_armado.png" alt="Fin armado" />
+    <figcaption>Figura 14.9 — Fin de armado</figcaption>
+  </figure>
+
+  <h2>14.4 Fotos y cierre</h2>
+  <figure>
+    <img src="imagenes/bodega/taller/fotos de las piezas.png" alt="Fotos piezas" />
+    <figcaption>Figura 14.10 — Fotos de piezas para cierre</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/taller/solicitar_confirmar cierre de proyecto.png" alt="Cierre proyecto" />
+    <figcaption>Figura 14.11 — Solicitar y confirmar cierre de proyecto</figcaption>
+  </figure>
+  <figure>
+    <img src="imagenes/bodega/taller/plan de trabajo por prioridad y avance.png" alt="Plan prioridad" />
+    <figcaption>Figura 14.12 — Plan de trabajo por prioridad y avance</figcaption>
+  </figure>
+</section>
+
+<!-- 15 ARCHIVOS NUBE HISTORICO -->
+<section id="s15" class="page-break">
+  <h1 class="doc-title">15. Archivos, Nube, Histórico y Plan de trabajo</h1>
+
+  <h2>15.1 Archivos (referencia diseño)</h2>
+  <p><span class="badge">Ruta</span> Bodega → <strong>Archivos</strong> — ZIP de referencia del cliente para diseñadora; cambio de prioridades.</p>
+  <figure>
+    <img src="imagenes/bodega/archivos_entregas.png" alt="Archivos entregas" />
+    <figcaption>Figura 15.1 — Archivos y entregas de diseño (supervisor)</figcaption>
+  </figure>
+
+  <h2>15.2 Nube</h2>
+  <p><span class="badge">Ruta</span> Bodega → <strong>Nube</strong> — Explorador de archivos del flujo activo (por proyecto/pieza). No sustituye al Histórico para respaldos USB masivos.</p>
+  <figure>
+    <img src="imagenes/bodega/archivo_nube.png" alt="Nube" />
+    <figcaption>Figura 15.2 — Explorador Nube de archivos de bodega</figcaption>
+  </figure>
+
+  <h2>15.3 Histórico (respaldo USB)</h2>
+  <p><span class="badge">Ruta</span> Bodega → <strong>Histórico</strong></p>
+  <p>Respaldo de carpetas completas de la USB. Archivos grandes en Cloudflare R2. El admin ve dos áreas:</p>
+  <table>
+    <tr><th>Botón</th><th>Contenido</th></tr>
+    <tr><td><strong>Programadora</strong></td><td>PROGRAMAS, DXF, NC — USB programación CNC</td></tr>
+    <tr><td><strong>Diseño</strong></td><td>SolidWorks, planos — carpetas como SOLAINO</td></tr>
+  </table>
+  <ol class="steps">
+    <li>Elija el área correcta.</li>
+    <li><strong>Elegir carpeta de la USB…</strong> → seleccione carpeta raíz.</li>
+    <li>Espere a que termine (no cierre sesión).</li>
+    <li>Si se interrumpe, reinicie sesión y suba la <strong>misma carpeta</strong> (no duplica).</li>
+    <li>Pulse <strong>Actualizar</strong> para ver el árbol completo.</li>
+  </ol>
+  <div class="callout ok">
+    Re-subir la misma carpeta <strong>actualiza</strong> archivos existentes; no crea duplicados (ruta única por archivo).
+  </div>
+
+  <h2>15.4 Plan de trabajo bodega</h2>
+  <figure>
+    <img src="imagenes/bodega/plan de trabajo.png" alt="Plan de trabajo" />
+    <figcaption>Figura 15.3 — Plan de trabajo semanal de bodega</figcaption>
+  </figure>
+  <p>Tablero semanal: metas por etapa, entregas, atrasos. Admin y encargado pueden editar, sincronizar desde prioridades, registrar motivos de atraso y exportar Excel/PDF.</p>
+</section>
+
+<!-- 16 REPORTES -->
+<section id="s16" class="page-break">
+  <h1 class="doc-title">16. Reportes y catálogos</h1>
+  <h2>16.1 Reportes de tiempos</h2>
+  <p><span class="badge">Ruta</span> Bodega → <strong>Reportes</strong> — Tiempos por OC/proyecto, contratiempos, exportación PDF, historial de actividad.</p>
+  <h2>16.2 Empresas y Requisitores</h2>
+  <p>Acceso desde Panel Inicio. CRUD de empresas cliente y requisitores. Nombres normalizados a mayúsculas. Se usan al vincular OC y proyectos.</p>
+</section>
+
+<!-- 17 DIAGRAMAS -->
+<section id="s17" class="page-break">
+  <h1 class="doc-title">17. Diagramas de flujo</h1>
+
+  <h2>17.1 Mapa de navegación — Administrador</h2>
+  <div class="mermaid">
+flowchart LR
+  subgraph Admin["Barra admin"]
+    INICIO[Inicio]
+    HIST[Historial]
+    USR[Usuarios]
+  end
+  subgraph Inv[Inventario]
+    INV[Inventario]
+    SOL[Solicitudes]
+  end
+  subgraph Bod[Bodega]
+    PROY[Proyectos]
+    ARC[Archivos]
+    REP[Reportes]
+    NUB[Nube]
+    HISTO[Histórico]
+    PLAN[Plan trabajo]
+    MAQ[Maquinado]
+    TAL[Taller]
+  end
+  INICIO --> INV & PROY & USR
+  </div>
+
+  <h2>17.2 Recuperación de contraseña</h2>
+  <div class="mermaid">
+sequenceDiagram
+  actor U as Usuario
+  participant App as SOLAINO
+  actor A as Administrador
+  U->>App: Solicita recuperación
+  A->>App: Usuarios — ve pendientes
+  A->>App: Nueva contraseña
+  A->>U: Comunica clave segura
+  A->>App: Marcar atendida
+  </div>
+
+  <h2>17.3 Respaldo USB — Histórico</h2>
+  <div class="mermaid">
+flowchart TD
+  A[Histórico] --> B{Diseño o Programadora?}
+  B --> C[Elegir carpeta USB]
+  C --> D[Subida a R2]
+  D --> E[Registro en base de datos]
+  E --> F{Sesión OK?}
+  F -->|Sí| G[Árbol visible]
+  F -->|No| H[Re-login y re-subir]
+  </div>
+
+  <h2>17.4 Matriz de permisos (resumen)</h2>
+  <table>
+    <tr><th>Función</th><th>Admin</th><th>Encargado</th><th>Usuario</th><th>Diseñadora</th><th>Programadora</th><th>Operador</th></tr>
+    <tr><td>Panel Inicio</td><td>✓</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td></tr>
+    <tr><td>Usuarios</td><td>✓</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td></tr>
+    <tr><td>Inventario CRUD</td><td>✓</td><td>✗</td><td>◐</td><td>✗</td><td>✗</td><td>✗</td></tr>
+    <tr><td>Solicitudes todas</td><td>✓</td><td>✗</td><td>◐</td><td>✗</td><td>✗</td><td>✗</td></tr>
+    <tr><td>Bodega proyectos</td><td>✓</td><td>✓</td><td>✗</td><td>◐</td><td>◐</td><td>◐</td></tr>
+    <tr><td>Histórico USB</td><td>✓</td><td>✓</td><td>✗</td><td>◐</td><td>◐</td><td>✗</td></tr>
+    <tr><td>Plan — editar/export</td><td>✓</td><td>✓</td><td>✗</td><td>ver</td><td>ver</td><td>ver</td></tr>
+    <tr><td>Prioridades cola</td><td>✗</td><td>✗</td><td>✗</td><td>✓</td><td>✓</td><td>✓</td></tr>
+  </table>
+</section>
+
+<!-- 18 GLOSARIO -->
+<section id="s18" class="page-break">
+  <h1 class="doc-title">18. Indicadores, buenas prácticas y glosario</h1>
+
+  <h2>18.1 Indicadores en pantalla</h2>
+  <table>
+    <tr><th>Indicador</th><th>Ubicación</th><th>Significado</th></tr>
+    <tr><td>Badge Solicitudes</td><td>Inventario → Solicitudes</td><td>Pendientes por resolver</td></tr>
+    <tr><td>Badge Usuarios</td><td>Usuarios</td><td>Recuperaciones de contraseña</td></tr>
+    <tr><td>Badge Bodega «!»</td><td>Menú Bodega</td><td>Entregas por revisar</td></tr>
+    <tr><td>Campana</td><td>Junto a Bodega</td><td>Cambio de prioridad en proyectos</td></tr>
+  </table>
+
+  <h2>18.2 Buenas prácticas</h2>
+  <ul>
+    <li><strong>Seguridad:</strong> una cuenta por persona; rol mínimo necesario; cierre sesión en PCs compartidas.</li>
+    <li><strong>Inventario:</strong> resolver solicitudes por antigüedad; documentar rechazos.</li>
+    <li><strong>Bodega:</strong> usar notas en proyectos; verificar fotos y tiempos antes de finalizar.</li>
+    <li><strong>Histórico:</strong> respaldos USB masivos solo por Histórico; no cerrar sesión en subidas largas.</li>
+    <li><strong>Auditoría:</strong> consultar Historial ante discrepancias; no limpiar sin política definida.</li>
+  </ul>
+
+  <h2>18.3 Glosario</h2>
+  <table>
+    <tr><th>Término</th><th>Definición</th></tr>
+    <tr><td>OC</td><td>Orden de compra — PDF asociado a proyectos</td></tr>
+    <tr><td>Folio</td><td>Identificador del proyecto en bodega</td></tr>
+    <tr><td>Entrega (diseño)</td><td>ZIP/archivos subidos por diseñadora; puede requerir revisión</td></tr>
+    <tr><td>Pieza</td><td>Componente dentro del ensamble</td></tr>
+    <tr><td>Nube</td><td>Archivos del flujo activo por proyecto</td></tr>
+    <tr><td>Histórico</td><td>Respaldo USB indexado (diseño/programación)</td></tr>
+    <tr><td>Plan de trabajo</td><td>Tablero semanal de metas y avance</td></tr>
+    <tr><td>R2</td><td>Cloudflare R2 — almacenamiento de archivos grandes</td></tr>
+    <tr><td>Prioridad 0–4</td><td>Urgencia del proyecto; genera notificación al cambiar</td></tr>
+  </table>
+</section>
+
+<footer class="doc-footer">
+  Manual del Administrador SOLAINO v1.2 — Uso interno — Mayo 2026<br />
+  Generado para impresión PDF. Imágenes: carpeta <code>imagenes/</code>
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'neutral',
+    securityLevel: 'loose',
+    flowchart: { curve: 'basis' }
+  });
+</script>
+</body>
+</html>

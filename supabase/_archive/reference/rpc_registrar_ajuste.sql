@@ -1,0 +1,89 @@
+-- RPC: registrar ajuste de inventario (stock contado / corrección)
+-- Requiere Auth + roles (`public.profiles`) y función helper `public.is_admin()`.
+--
+-- Ejecuta en Supabase → SQL Editor.
+
+create or replace function public.registrar_ajuste(
+  p_codigo text,
+  p_stock_contado numeric,
+  p_motivo text default 'Corrección',
+  p_nota text default null,
+  p_responsable text default 'Admin'
+)
+returns table (
+  producto_id uuid,
+  delta numeric,
+  stock_anterior numeric,
+  stock_nuevo numeric
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_producto public.productos%rowtype;
+  v_delta numeric;
+begin
+  if not public.is_admin() then
+    raise exception 'solo admin puede ajustar inventario';
+  end if;
+
+  if p_codigo is null or btrim(p_codigo) = '' then
+    raise exception 'código requerido';
+  end if;
+  if p_stock_contado is null then
+    raise exception 'stock_contado requerido';
+  end if;
+  if p_stock_contado < 0 then
+    raise exception 'stock_contado no puede ser negativo';
+  end if;
+
+  select *
+  into v_producto
+  from public.productos
+  where upper(codigo) = upper(btrim(p_codigo))
+  limit 1;
+
+  if v_producto.id is null then
+    raise exception 'producto no encontrado: %', p_codigo;
+  end if;
+
+  v_delta := p_stock_contado - coalesce(v_producto.stock_actual, 0);
+
+  -- Si no hay cambio, aún así regresamos info (sin insertar movimiento).
+  if v_delta = 0 then
+    return query
+      select v_producto.id, 0::numeric, coalesce(v_producto.stock_actual, 0), coalesce(v_producto.stock_actual, 0);
+    return;
+  end if;
+
+  update public.productos
+  set stock_actual = p_stock_contado
+  where id = v_producto.id;
+
+  insert into public.movimientos (
+    producto_id,
+    tipo,
+    motivo,
+    cantidad,
+    fecha,
+    responsable,
+    nota
+  )
+  values (
+    v_producto.id,
+    'Ajuste',
+    coalesce(nullif(btrim(p_motivo), ''), 'Corrección'),
+    abs(v_delta),
+    now(),
+    coalesce(nullif(btrim(p_responsable), ''), 'Admin'),
+    case when p_nota is null or btrim(p_nota) = '' then null else btrim(p_nota) end
+  );
+
+  return query
+    select v_producto.id, v_delta, coalesce(v_producto.stock_actual, 0), p_stock_contado;
+end;
+$$;
+
+grant execute on function public.registrar_ajuste(text, numeric, text, text, text) to authenticated;
+
