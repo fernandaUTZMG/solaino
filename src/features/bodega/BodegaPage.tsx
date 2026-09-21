@@ -60,7 +60,7 @@ import {
   startWorkInterval,
   type BodegaWorkIntervalRow,
 } from '../../lib/bodegaWorkIntervalsRepo'
-import { closeWorkInterval, closeProgrammingOfficeClockIfComplete } from '../../lib/bodegaWorkIntervalClose'
+import { closeProgrammingOfficeClockIfComplete } from '../../lib/bodegaWorkIntervalClose'
 import { fetchPieceIntervalsForProject, fetchPieceIntervalsForProjects } from '../../lib/bodegaPieceIntervalsRepo'
 import type { BodegaPieceIntervalRow } from '../../lib/bodegaPieceIntervalsRepo'
 import {
