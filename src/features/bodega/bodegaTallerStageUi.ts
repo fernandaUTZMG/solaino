@@ -33,70 +33,45 @@ type StageUi = {
   docBtn: string
 }
 
-const armado: StageUi = {
-  section: 'rounded-2xl border-2 border-emerald-300/90 bg-white shadow-md ring-1 ring-emerald-900/[0.04]',
-  header: 'border-b border-emerald-200/80 bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 px-5 py-5 sm:px-6',
-  headerKicker: 'text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-100',
-  headerTitle: 'text-[18px] font-bold text-white sm:text-[20px]',
-  headerBody: 'mt-2 max-w-2xl text-[13px] leading-relaxed text-emerald-50/95',
-  statChip: 'rounded-lg bg-white/20 px-3 py-1.5 text-[12px] font-semibold text-white',
-  statChipActive: 'rounded-lg bg-emerald-400/35 px-3 py-1.5 text-[12px] font-semibold text-white',
-  statChipMuted: 'rounded-lg bg-white/12 px-3 py-1.5 text-[12px] text-emerald-100',
-  flowCard: 'rounded-xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/95 to-teal-50/40 p-4',
-  flowTitle: 'text-[12px] font-bold uppercase tracking-wide text-emerald-950',
-  flowText: 'mt-2 text-[13px] leading-relaxed text-emerald-950/90',
-  filterActive: 'bg-emerald-700 text-white shadow-sm',
-  filterIdle: 'border border-emerald-200 bg-white text-emerald-950 hover:bg-emerald-50',
-  listSection: 'rounded-2xl border border-emerald-200/90 bg-white shadow-sm ring-1 ring-emerald-900/[0.03]',
-  listHeader: 'border-b border-emerald-100 bg-emerald-50/80 px-4 py-3 sm:px-5',
-  listSelected: 'bg-emerald-100 ring-2 ring-inset ring-emerald-500/70',
-  listHover: 'hover:bg-emerald-50/90',
-  empty: 'rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/60 px-6 py-14 text-center',
-  panel: 'rounded-2xl border border-emerald-300/80 bg-gradient-to-br from-emerald-50/95 to-white shadow-sm ring-1 ring-emerald-900/[0.05]',
-  panelHeader: 'border-b border-emerald-200/80 bg-gradient-to-r from-emerald-800 to-teal-700 px-5 py-4 sm:px-6',
-  panelKicker: 'text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-100',
+/** Paleta sobria taller: slate / navy (alineada con Diseño, Programación y Maquinado). */
+const tallerProfessional: StageUi = {
+  section:
+    'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.03]',
+  header:
+    'border-b border-slate-200 bg-gradient-to-br from-section-navy via-[#0a2848] to-[#123d6b] px-5 py-5 sm:px-6',
+  headerKicker: 'text-[11px] font-bold uppercase tracking-[0.14em] text-sky-300/90',
+  headerTitle: 'text-[18px] font-bold tracking-tight text-white sm:text-[20px]',
+  headerBody: 'mt-2 max-w-2xl text-[13px] leading-relaxed text-sky-100/90',
+  statChip: 'rounded-lg bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white',
+  statChipActive: 'rounded-lg bg-emerald-500/25 px-3 py-1.5 text-[12px] font-semibold text-emerald-100',
+  statChipMuted: 'rounded-lg bg-white/10 px-3 py-1.5 text-[12px] text-sky-100/85',
+  flowCard: 'rounded-xl border border-slate-200 bg-slate-50 p-4',
+  flowTitle: 'text-[12px] font-bold uppercase tracking-wide text-section-navy',
+  flowText: 'mt-2 text-[13px] leading-relaxed text-slate-700',
+  filterActive: 'bg-section-navy text-white shadow-sm',
+  filterIdle: 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
+  listSection:
+    'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.03]',
+  listHeader: 'border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5',
+  listSelected: 'bg-sky-50 ring-2 ring-inset ring-section-navy/30',
+  listHover: 'hover:bg-slate-50',
+  empty: 'rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center',
+  panel:
+    'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.03]',
+  panelHeader:
+    'border-b border-slate-200 bg-gradient-to-r from-slate-800 to-section-navy px-5 py-4 sm:px-6',
+  panelKicker: 'text-[11px] font-bold uppercase tracking-[0.14em] text-sky-200/90',
   panelTitle: 'mt-1 text-[17px] font-bold leading-snug text-white',
-  stepCurrent: 'border-emerald-400 bg-emerald-50/90',
-  stepBadgeDone: 'bg-emerald-700 text-white',
-  stepBadgeCurrent: 'bg-emerald-200 text-emerald-950 ring-2 ring-emerald-600',
-  btnStart: 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md hover:from-emerald-700 hover:to-teal-700',
-  btnFinish: 'bg-gradient-to-r from-emerald-800 to-teal-800 text-white shadow-md hover:from-emerald-900 hover:to-teal-900',
-  docBtn: 'border-emerald-300 bg-emerald-50 text-emerald-950 hover:bg-emerald-100',
+  stepCurrent: 'border-sky-300 bg-sky-50/90',
+  stepBadgeDone: 'bg-section-navy text-white',
+  stepBadgeCurrent: 'bg-sky-200 text-section-navy ring-2 ring-section-navy/40',
+  btnStart: 'bg-section-navy text-white shadow-sm hover:brightness-110',
+  btnFinish: 'bg-slate-800 text-white shadow-sm hover:bg-slate-900',
+  docBtn: 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50',
 }
 
-const detallado: StageUi = {
-  section: 'rounded-2xl border-2 border-sky-300/90 bg-white shadow-md ring-1 ring-sky-900/[0.04]',
-  header: 'border-b border-sky-200/80 bg-gradient-to-r from-sky-800 via-indigo-700 to-sky-800 px-5 py-5 sm:px-6',
-  headerKicker: 'text-[11px] font-bold uppercase tracking-[0.14em] text-sky-100',
-  headerTitle: 'text-[18px] font-bold text-white sm:text-[20px]',
-  headerBody: 'mt-2 max-w-2xl text-[13px] leading-relaxed text-sky-50/95',
-  statChip: 'rounded-lg bg-white/20 px-3 py-1.5 text-[12px] font-semibold text-white',
-  statChipActive: 'rounded-lg bg-sky-400/35 px-3 py-1.5 text-[12px] font-semibold text-white',
-  statChipMuted: 'rounded-lg bg-white/12 px-3 py-1.5 text-[12px] text-sky-100',
-  flowCard: 'rounded-xl border border-sky-200/90 bg-gradient-to-br from-sky-50/95 to-indigo-50/40 p-4',
-  flowTitle: 'text-[12px] font-bold uppercase tracking-wide text-sky-950',
-  flowText: 'mt-2 text-[13px] leading-relaxed text-sky-950/90',
-  filterActive: 'bg-indigo-700 text-white shadow-sm',
-  filterIdle: 'border border-sky-200 bg-white text-sky-950 hover:bg-sky-50',
-  listSection: 'overflow-hidden rounded-2xl border border-sky-200/90 bg-white shadow-sm ring-1 ring-sky-900/[0.03]',
-  listHeader: 'border-b border-sky-100 bg-sky-50/80 px-4 py-3 sm:px-5',
-  listSelected: 'bg-sky-100 ring-2 ring-inset ring-indigo-400/70',
-  listHover: 'hover:bg-sky-50/90',
-  empty: 'rounded-2xl border border-dashed border-sky-300 bg-sky-50/60 px-6 py-14 text-center',
-  panel: 'rounded-2xl border border-sky-300/80 bg-gradient-to-br from-sky-50/95 to-white shadow-sm ring-1 ring-sky-900/[0.05]',
-  panelHeader: 'border-b border-sky-200/80 bg-gradient-to-r from-indigo-800 to-sky-700 px-5 py-4 sm:px-6',
-  panelKicker: 'text-[11px] font-bold uppercase tracking-[0.14em] text-sky-100',
-  panelTitle: 'mt-1 text-[17px] font-bold leading-snug text-white',
-  stepCurrent: 'border-sky-400 bg-sky-50/90',
-  stepBadgeDone: 'bg-indigo-700 text-white',
-  stepBadgeCurrent: 'bg-sky-200 text-sky-950 ring-2 ring-indigo-500',
-  btnStart: 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-md hover:from-sky-700 hover:to-indigo-700',
-  btnFinish: 'bg-gradient-to-r from-indigo-800 to-sky-800 text-white shadow-md hover:from-indigo-900 hover:to-sky-900',
-  docBtn: 'border-sky-300 bg-sky-50 text-sky-950 hover:bg-sky-100',
-}
-
-export function tallerStageUi(stage: TallerStageKind): StageUi {
-  return stage === 'armado' ? armado : detallado
+export function tallerStageUi(_stage: TallerStageKind): StageUi {
+  return tallerProfessional
 }
 
 export function tallerStageFinishLabel(stage: TallerStageKind): string {
@@ -106,3 +81,27 @@ export function tallerStageFinishLabel(stage: TallerStageKind): string {
 export function tallerStageTitle(stage: TallerStageKind): string {
   return stage === 'armado' ? 'Armado por pieza' : 'Detallado por pieza'
 }
+
+/** Estilos compartidos para Perfilado (misma familia visual). */
+export const tallerPerfiladoUi = {
+  intro: 'rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 sm:px-6',
+  introText: 'text-[14px] leading-relaxed text-slate-700',
+  introMeta: 'mt-2 text-[12px] text-slate-500',
+  filterActive: 'bg-section-navy text-white shadow-sm',
+  filterIdle: 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
+  listSection:
+    'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/[0.03]',
+  listHeader: 'border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5',
+  listSelected: 'bg-sky-50',
+  listHover: 'hover:bg-slate-50',
+  panel:
+    'max-h-[min(720px,calc(100dvh-10rem))] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm ring-1 ring-slate-900/[0.03] sm:px-6 sm:py-6',
+  panelKicker: 'text-[11px] font-bold uppercase tracking-wide text-section-navy',
+  note: 'rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-700',
+  docLabel: 'text-[11px] font-bold uppercase text-slate-500',
+  docBtn: 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50',
+  btnPrimary: 'bg-section-navy text-white shadow-sm hover:brightness-110',
+  btnSecondary: 'border-2 border-slate-300 bg-white text-slate-900 shadow-sm hover:bg-slate-50',
+  batchWrap: 'border-slate-300 bg-slate-50',
+  batchTitle: 'text-section-navy',
+} as const

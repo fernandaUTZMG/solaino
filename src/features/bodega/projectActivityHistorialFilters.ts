@@ -13,7 +13,7 @@ export type ActivityHistorialFilter =
 export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   project_note: 'Nota',
   avance_manual: 'Avance manual',
-  design_uploaded: 'ZIP diseño',
+  design_uploaded: 'Entrega diseño',
   design_approved: 'Diseño aprobado',
   design_revision_requested: 'Rechazo / cambios',
   status_changed: 'Estado',
@@ -30,7 +30,7 @@ export const ACTIVITY_FILTER_OPTIONS: Array<{
   { id: 'notas', label: 'Notas', description: 'Comentarios guardados en el proyecto' },
   { id: 'aprobaciones', label: 'Aprobaciones', description: 'Diseño aprobado por supervisor' },
   { id: 'rechazos', label: 'Rechazos', description: 'Cambios o revisión solicitada' },
-  { id: 'subidas', label: 'Subidas', description: 'ZIP de diseño u otros archivos' },
+  { id: 'subidas', label: 'Subidas', description: 'Entrega de diseño (.x_t) u otros archivos' },
   { id: 'avance', label: 'Avance', description: 'Porcentaje de avance manual' },
   { id: 'estado', label: 'Estado', description: 'Cambios de estado del proyecto' },
   { id: 'otros', label: 'Otros', description: 'Fotos, programación y demás eventos' },

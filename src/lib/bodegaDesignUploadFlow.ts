@@ -16,6 +16,8 @@ import {
   uploadBodegaProyectosBinary,
 } from './bodegaStorageUpload'
 import { getSupabase } from './supabaseClient'
+import { isXtDesignFile, parseXtFile } from './xtParasolidPieces'
+import { notifyProgrammersDesignXtUploaded } from './notifyBodegaDesignXt'
 
 /** Campos mínimos del proyecto para registrar una versión de diseño. */
 export type BodegaDesignUploadProject = {
@@ -50,16 +52,56 @@ export async function runDesignZipUpload(args: {
 
   assertBodegaProyectosStorageZipAllowed(file)
 
-  phase('Analizando ZIP…')
-  const analysis = args.precomputedAnalysis ?? (await analyzeDesignZip(file))
+  const asXt = isXtDesignFile(file)
+  let analysis: ZipDesignAnalysis
+  if (asXt) {
+    phase('Leyendo ensamble .x_t…')
+    const parsed = await parseXtFile(file)
+    if (parsed.format !== 'text') {
+      throw new Error(
+        `El archivo es FORMAT=${parsed.format}. Solo se puede entregar Parasolid en texto (.x_t), no .x_b binario.`,
+      )
+    }
+    if (parsed.pieces.length === 0) {
+      throw new Error('No se detectaron piezas en el .x_t. Revisa que el ensamble sea FORMAT=text.')
+    }
+    analysis = {
+      entryHtmlPath: null,
+      manifest: {
+        fileCount: 1,
+        totalBytes: file.size,
+        extensionCounts: { x_t: 1 },
+        topLevelFolders: [],
+        hasHtml: false,
+        hasPdf: false,
+        hasSolidworks: false,
+        entryPaths: parsed.pieces.map((p) => p.name),
+        kind: 'xt',
+        assemblyKey: parsed.assemblyKey,
+        exportedBy: parsed.exportedBy,
+        pieceNames: parsed.pieces.map((p) => p.name),
+      },
+    }
+  } else {
+    phase('Analizando ZIP…')
+    analysis = args.precomputedAnalysis ?? (await analyzeDesignZip(file))
+  }
+
   phase('Preparando subida…')
   const nextV = await fetchNextDesignVersionNumber(project.id, cat)
 
   const sb = getSupabase()
-  const safeName = sanitizeStorageFileName(file.name.replace(/\.zip$/i, '') + '.zip')
+  const ext = asXt ? (file.name.match(/\.x_t$/i) ? '.x_t' : '.xt') : '.zip'
+  const safeName = sanitizeStorageFileName(file.name.replace(/\.(zip|x_t|xt)$/i, '') + ext)
   const folderSeg = cat === 'info_cliente' ? 'info_cliente' : 'diseno'
   const path = `${project.folio}/${folderSeg}/v${nextV}/${crypto.randomUUID()}-${safeName}`
-  await uploadBodegaProyectosBinary(sb, BODEGA_PROYECTOS_BUCKET, path, file, 'application/zip')
+  await uploadBodegaProyectosBinary(
+    sb,
+    BODEGA_PROYECTOS_BUCKET,
+    path,
+    file,
+    asXt ? 'application/octet-stream' : 'application/zip',
+  )
 
   phase('Guardando versión…')
   await registerDesignZipVersionForProject({
@@ -129,8 +171,19 @@ async function registerDesignZipVersionForProject(args: {
       package_category: cat,
       comment: comment,
       ...(uploadOrigin ? { origen: uploadOrigin } : {}),
+      ...(analysis.manifest.kind === 'xt'
+        ? { kind: 'xt', piece_count: analysis.manifest.pieceNames?.length ?? analysis.manifest.entryPaths?.length ?? 0 }
+        : {}),
     },
   })
+
+  if (cat === 'entrega_diseno' && analysis.manifest.kind === 'xt') {
+    await notifyProgrammersDesignXtUploaded({
+      projectId: project.id,
+      filename: zipFilename,
+      pieceCount: analysis.manifest.pieceNames?.length ?? analysis.manifest.entryPaths?.length ?? 0,
+    })
+  }
 
   const st = project.status
   // Nueva entrega formal aunque el proyecto ya estuviera en diseno_aprobado / programación.

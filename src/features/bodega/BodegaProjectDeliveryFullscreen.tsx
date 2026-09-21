@@ -5,7 +5,6 @@ type Props = {
   folio: string
   projectName: string
   statusLabel: string
-  avancePct: number
   onClose: () => void
   /** Info, prioridad, etc. */
   headerActions?: ReactNode
@@ -43,11 +42,7 @@ export function BodegaProjectDeliveryFullscreen(props: Props) {
               <div className="hidden min-w-[7.5rem] flex-col rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-center sm:flex sm:text-left">
                 <span className="text-[10px] font-bold uppercase tracking-wide text-blue-200/80">Estado</span>
                 <span className="text-[13px] font-bold leading-tight text-white">{props.statusLabel}</span>
-                <span className="font-mono text-[10px] text-blue-100/75">Avance {props.avancePct}%</span>
               </div>
-              <span className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 font-mono text-[11px] text-blue-100/90 sm:hidden">
-                {props.avancePct}%
-              </span>
               <button
                 type="button"
                 className="min-h-[44px] rounded-xl border border-white/30 bg-white/10 px-4 py-2 text-[13px] font-bold text-white shadow-sm transition hover:bg-white/20 sm:px-5 sm:text-[14px]"

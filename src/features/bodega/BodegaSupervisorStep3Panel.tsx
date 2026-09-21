@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ProjectDesignVersionRow } from '../../lib/designVersionsRepo'
 import { nextDesignVersionPendingReview } from '../../lib/designVersionsRepo'
-import { buildDesignKitLabelMap } from '../../lib/designZipScope'
+import type { BodegaProjectPieceRow } from '../../lib/bodegaPiecesRepo'
+import { pieceHasPlano } from '../../lib/bodegaPieceDesignDrawing'
+import { pieceForZipPath } from '../../lib/bodegaXtAssemblies'
+import { buildDesignKitLabelMap, displayLabelFromDesignPath } from '../../lib/designZipScope'
 import { groupDesignPathsByImportFolder } from '../../lib/designZipImportFolders'
 import { computeStep3FolderConfirmStatus } from '../../lib/bodegaStep3Supervisor'
 import { filterSwPartZipPaths } from '../../lib/zipDesignPackage'
@@ -17,6 +20,7 @@ type Props = {
   designZipPathsLoading: boolean
   confirmedFolderKeys: Set<string>
   confirmBusy: boolean
+  pieces?: BodegaProjectPieceRow[]
   onDownloadZip: (v: ProjectDesignVersionRow) => void
   onConfirmFolders: (args: {
     version: ProjectDesignVersionRow
@@ -57,6 +61,19 @@ export function BodegaSupervisorStep3Panel(props: Props) {
     if (pendingReview) return filterSwPartZipPaths(props.pendingReviewPaths)
     return filterSwPartZipPaths(props.designZipPaths)
   }, [pendingReview, props.pendingReviewPaths, props.designZipPaths])
+
+  const pieces = props.pieces ?? []
+
+  const planosSummary = useMemo(() => {
+    let withPlano = 0
+    let sinPlano = 0
+    for (const path of pathsForPanel) {
+      const piece = pieceForZipPath(pieces, path)
+      if (piece && pieceHasPlano(piece, pathsForPanel)) withPlano += 1
+      else sinPlano += 1
+    }
+    return { withPlano, sinPlano, total: pathsForPanel.length }
+  }, [pathsForPanel, pieces])
 
   const folderGroups = useMemo(
     () => groupDesignPathsByImportFolder(pathsForPanel, kitLabels),
@@ -128,7 +145,8 @@ export function BodegaSupervisorStep3Panel(props: Props) {
             </span>
             <p className="mt-2 text-[14px] font-semibold text-slate-900">{version.zip_filename}</p>
             <p className="mt-1 text-[12px] text-slate-600">
-              Descarga la carpeta, revísala y confirma qué carpetas pasan a programación. No se crean piezas todavía.
+              Descarga el ensamble .x_t, revisa las piezas y los planos PDF, y confirma. Después la diseñadora podrá
+              separar destinos (torno / perfiladora / CNC / accesorio).
             </p>
           </div>
           <button
@@ -136,14 +154,53 @@ export function BodegaSupervisorStep3Panel(props: Props) {
             className="min-h-[40px] shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-800 shadow-sm"
             onClick={() => props.onDownloadZip(version)}
           >
-            Descargar carpeta (ZIP)
+            {/\.x_t$/i.test(version.zip_filename) || /\.xt$/i.test(version.zip_filename)
+              ? 'Descargar .x_t'
+              : 'Descargar carpeta (ZIP)'}
           </button>
         </div>
 
+        {planosSummary.total > 0 ? (
+          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-[13px] text-sky-950">
+            <p className="font-bold">Planos PDF en esta entrega</p>
+            <p className="mt-1 leading-relaxed">
+              <span className="font-semibold text-emerald-800">{planosSummary.withPlano} con plano</span>
+              {' · '}
+              <span className="font-semibold text-slate-700">{planosSummary.sinPlano} sin plano</span>
+              {' · '}
+              {planosSummary.total} pieza{planosSummary.total === 1 ? '' : 's'} en total. Las que tienen plano irán a
+              torno o perfiladora; las demás a CNC o accesorio.
+            </p>
+            {pathsForPanel.length > 0 && pathsForPanel.length <= 40 ? (
+              <ul className="mt-3 max-h-48 space-y-1 overflow-auto text-[12px]">
+                {pathsForPanel.map((path) => {
+                  const piece = pieceForZipPath(pieces, path)
+                  const has = piece != null && pieceHasPlano(piece, pathsForPanel)
+                  return (
+                    <li key={path} className="flex flex-wrap items-center gap-2 font-mono text-slate-800">
+                      <span className="min-w-0 flex-1 truncate">{displayLabelFromDesignPath(path)}</span>
+                      {has ? (
+                        <span className="inline-flex items-center gap-1 rounded border border-emerald-400 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-900">
+                          <span className="rounded bg-rose-600 px-1 text-[8px] text-white">PDF</span>
+                          Plano
+                        </span>
+                      ) : (
+                        <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-400">
+                          Sin plano
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
         {props.pendingReviewPathsLoading || props.designZipPathsLoading ? (
-          <p className="text-[13px] text-slate-500">Leyendo carpetas del ZIP…</p>
+          <p className="text-[13px] text-slate-500">Leyendo piezas de la entrega…</p>
         ) : folderGroups.length === 0 ? (
-          <p className="text-[13px] text-amber-800">No hay carpetas con piezas en este ZIP.</p>
+          <p className="text-[13px] text-amber-800">No se detectaron piezas en esta entrega.</p>
         ) : (
           <>
             <ul className="space-y-2">
@@ -216,7 +273,7 @@ export function BodegaSupervisorStep3Panel(props: Props) {
                 className="min-h-[44px] rounded-xl bg-emerald-700 px-5 py-2.5 text-[13px] font-bold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-50"
                 onClick={() => void handleConfirm(false)}
               >
-                {props.confirmBusy ? 'Guardando…' : 'Confirmar carpeta(s) seleccionada(s)'}
+                {props.confirmBusy ? 'Guardando…' : 'Confirmar diseño y planos'}
               </button>
               {pendingReview ? (
                 <button
@@ -245,7 +302,7 @@ export function BodegaSupervisorStep3Panel(props: Props) {
         <div className="overflow-hidden rounded-2xl border border-indigo-200/90 bg-white shadow-sm">
           <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-50/95 via-white to-white px-5 py-4 sm:px-6">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-800/90">Revisión encargado</p>
-            <h4 className="mt-1 text-[16px] font-bold text-slate-900">Confirma las carpetas del diseño</h4>
+            <h4 className="mt-1 text-[16px] font-bold text-slate-900">Confirma diseño y planos</h4>
           </div>
           <div className="px-5 py-4 sm:px-6">{renderFolderBlock(pendingReview)}</div>
         </div>
@@ -255,7 +312,7 @@ export function BodegaSupervisorStep3Panel(props: Props) {
         <div className="rounded-xl border border-amber-200/80 bg-amber-50/50 p-4 text-[13px] text-amber-950">
           <p className="font-semibold">Esperando corrección de la diseñadora</p>
           <p className="mt-2 leading-relaxed">
-            La entrega fue rechazada o está incompleta. Cuando la diseñadora suba una nueva carpeta, podrás confirmarla
+            La entrega fue rechazada o está incompleta. Cuando la diseñadora suba un nuevo .x_t, podrás confirmarlo
             aquí.
           </p>
         </div>
@@ -288,7 +345,9 @@ export function BodegaSupervisorStep3Panel(props: Props) {
     <section className={disenoSeccion}>
       <header className="border-b border-slate-200/80 px-5 py-4 sm:px-6">
         <h3 className={disenoTitulo}>Paso 3 — Encargado</h3>
-        <p className="mt-1 text-[13px] text-slate-600">Confirma carpetas de diseño (sin importar piezas ni tratamientos).</p>
+        <p className="mt-1 text-[13px] text-slate-600">
+          Confirma el ensamble y los planos. Después se pueden separar las piezas por destino.
+        </p>
       </header>
       {inner}
     </section>

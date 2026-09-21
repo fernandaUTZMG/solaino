@@ -12,6 +12,7 @@ import { BODEGA_PROYECTOS_BUCKET } from './bodegaObjectStorage'
 import { sanitizeStorageFileName } from './bodegaOrdenes'
 import { getSupabase } from './supabaseClient'
 import { uploadBodegaProyectosBinary } from './bodegaStorageUpload'
+import { isXtDesignVersion } from './xtDesignManifest'
 import { labelFromZipPath } from './zipDesignPackage'
 
 const designZipBlobByVersion = new Map<string, Blob>()
@@ -35,6 +36,16 @@ async function findDesignVersionContainingPath(
     if (scoped) return scoped
   }
   for (const version of versions) {
+    if (isXtDesignVersion(version)) {
+      const names = (version.manifest?.pieceNames ?? version.manifest?.entryPaths) as unknown
+      const list = Array.isArray(names)
+        ? names.filter((p): p is string => typeof p === 'string')
+        : []
+      if (list.some((p) => p.trim().replaceAll('\\', '/').toLowerCase() === want.toLowerCase())) {
+        return version
+      }
+      continue
+    }
     const paths = await resolveDesignVersionEntryPaths(version)
     if (paths.some((p) => p.trim().replaceAll('\\', '/') === want)) return version
   }
@@ -65,17 +76,28 @@ export async function archiveAccesorioFromDesignZip(args: {
   }
 
   const version = await findDesignVersionContainingPath(versions, norm)
-  if (!version) throw new Error('No se encontró el ZIP de diseño que contiene esta pieza.')
+  if (!version) throw new Error('No se encontró el archivo de diseño que contiene esta pieza.')
 
-  const zipBlob = await designZipBlobForVersion(version)
-  const bytes = await readZipEntryBytes(zipBlob, zipEntryPathForStorageLookup(norm))
-  if (!bytes) {
-    throw new Error('No se pudo leer el archivo dentro del ZIP de diseño.')
+  const designBlob = await designZipBlobForVersion(version)
+  let fileBytes: BlobPart
+  let fileName: string
+
+  if (isXtDesignVersion(version)) {
+    // Un .x_t es un ensamble, no un ZIP: se archiva el mismo archivo con el nombre de la pieza.
+    fileBytes = designBlob
+    const base = labelFromZipPath(norm).replace(/\.(x_t|xt)$/i, '').trim() || 'pieza'
+    fileName = `${sanitizeStorageFileName(base)}.x_t`
+  } else {
+    const bytes = await readZipEntryBytes(designBlob, zipEntryPathForStorageLookup(norm))
+    if (!bytes) {
+      throw new Error('No se pudo leer el archivo dentro del ZIP de diseño.')
+    }
+    fileBytes = bytes as BlobPart
+    fileName = labelFromZipPath(norm)
   }
 
-  const fileName = labelFromZipPath(norm)
   const storagePath = accesorioStoragePath(folio, args.pieceId, fileName)
-  const file = new File([bytes as BlobPart], fileName, { type: 'application/octet-stream' })
+  const file = new File([fileBytes], fileName, { type: 'application/octet-stream' })
   const sb = getSupabase()
   await uploadBodegaProyectosBinary(sb, BODEGA_PROYECTOS_BUCKET, storagePath, file, 'application/octet-stream')
 

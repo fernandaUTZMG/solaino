@@ -8,6 +8,7 @@ import { visibleDesignPieces } from '../../lib/designZipPiecePairs'
 import type { ProjectDesignVersionRow } from '../../lib/designVersionsRepo'
 import { pieceHasPlano } from '../../lib/bodegaPieceDesignDrawing'
 import { isSwPartZipPath } from '../../lib/zipDesignPackage'
+import { expectedPlanoFileName, fileRenamedToExpectedPlano } from '../../lib/designPlanoNaming'
 import { disenoSeccion, disenoTitulo } from './bodegaDisenoUi.ts'
 import { BodegaPiecePlanoAttach } from './BodegaPiecePlanoAttach.tsx'
 import { DesignPathIdentity } from './DesignPathIdentity.tsx'
@@ -27,7 +28,12 @@ export function BodegaDesignPiecePlanosPanel(props: Props) {
 
   const swPieces = useMemo(() => {
     const visible = visibleDesignPieces(props.pieces, props.designZipPaths)
-    return visible.filter((p) => p.source_path && isSwPartZipPath(p.source_path))
+    return visible.filter(
+      (p) =>
+        p.source_path &&
+        isSwPartZipPath(p.source_path) &&
+        (p.programmer_bucket === 'torno' || p.programmer_bucket === 'perfilado'),
+    )
   }, [props.pieces, props.designZipPaths])
 
   const missingCount = swPieces.filter((p) => !pieceHasPlano(p, props.designZipPaths)).length
@@ -54,8 +60,8 @@ export function BodegaDesignPiecePlanosPanel(props: Props) {
   const inner = (
       <div className="space-y-4">
         <p className="text-[13px] leading-relaxed text-slate-600">
-          Si te pasaron un plano PDF aparte (no va en el ZIP o llegó después), adjúntalo a la pieza correspondiente.
-          Maquinado, perfilado y taller usarán ese PDF.
+          Planos PDF con el <strong>mismo nombre</strong> que la pieza. Independientes del .x_t. En destinos eliges
+          torno o perfiladora.
         </p>
         {multipleModels ? (
           <p className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-[13px] text-indigo-950">
@@ -65,8 +71,7 @@ export function BodegaDesignPiecePlanosPanel(props: Props) {
         ) : null}
         {missingCount > 0 ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-950">
-            Faltan planos en <strong>{missingCount}</strong> pieza(s). Idealmente el PDF tiene el mismo nombre que el
-            .SLDPRT; si no, súbelo manualmente aquí.
+            Faltan planos en <strong>{missingCount}</strong> pieza(s). El PDF debe llamarse igual que la pieza.
           </p>
         ) : null}
         <div className="space-y-4">
@@ -91,6 +96,8 @@ export function BodegaDesignPiecePlanosPanel(props: Props) {
                         projectFolio={props.projectFolio}
                         designZipPaths={props.designZipPaths}
                         canEdit={canAttach}
+                        expectedFileName={expectedPlanoFileName(p.source_path ?? p.label)}
+                        renameFile={(file) => fileRenamedToExpectedPlano(file, p.source_path ?? p.label)}
                         onUpdated={props.onReload}
                       />
                     </div>

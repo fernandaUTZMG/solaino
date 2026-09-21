@@ -72,12 +72,20 @@ export async function batchFinishPerfilado(args: {
   intervalsByPiece: Map<string, BodegaPieceIntervalRow[]>
   outcome: PerfiladoCompletionOutcome
 }): Promise<{ finished: number; skipped: number; errors: string[] }> {
-  return batchFinishPieceLaneCore({
-    pieces: args.pieces,
-    intervalsByPiece: args.intervalsByPiece,
-    lane: 'perfilado_operador',
-    onPiece: (pieceId) => completePerfiladoWithOutcome({ pieceId, outcome: args.outcome }),
-  })
+  let finished = 0
+  const errors: string[] = []
+  for (const p of args.pieces) {
+    try {
+      // Perfilado no cronometra: cierra intervalo abierto si existiera y marca salida.
+      await endPieceInterval(p.id, 'perfilado_operador').catch(() => undefined)
+      await completePerfiladoWithOutcome({ pieceId: p.id, outcome: args.outcome })
+      finished += 1
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error al terminar'
+      errors.push(`${p.label}: ${msg}`)
+    }
+  }
+  return { finished, skipped: 0, errors }
 }
 
 export async function batchFinishTallerStage(args: {

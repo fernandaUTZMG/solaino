@@ -24,12 +24,12 @@ type Props = {
 }
 
 const PERF_STYLES = {
-  wrap: 'border-teal-300 bg-teal-50/80',
-  title: 'text-teal-900',
-  btnStart: 'bg-teal-700 text-white shadow-sm hover:bg-teal-800',
-  btnFinishMain: 'bg-emerald-700 text-white shadow-sm hover:bg-emerald-800',
-  btnFinishAlt: 'bg-programacion-700 text-white shadow-sm hover:bg-programacion-800',
-  btnFinishAlt2: 'bg-programacion-800 text-white shadow-sm hover:bg-programacion-900',
+  wrap: 'border-slate-300 bg-slate-50',
+  title: 'text-section-navy',
+  btnStart: 'bg-section-navy text-white shadow-sm hover:brightness-110',
+  btnFinishMain: 'bg-section-navy text-white shadow-sm hover:brightness-110',
+  btnFinishAlt: 'border-2 border-slate-300 bg-white text-slate-900 shadow-sm hover:bg-slate-50',
+  btnFinishAlt2: 'border-2 border-slate-300 bg-white text-slate-900 shadow-sm hover:bg-slate-50',
 }
 
 export function BodegaPieceLaneBatchControls(props: Props) {
@@ -127,9 +127,7 @@ export function BodegaPieceLaneBatchControls(props: Props) {
   const wrapClass =
     props.variant === 'perfilado'
       ? PERF_STYLES.wrap
-      : props.variant === 'armado'
-        ? 'border-emerald-300 bg-emerald-50/80'
-        : 'border-sky-300 bg-sky-50/80'
+      : 'border-slate-300 bg-slate-50'
 
   return (
     <div
@@ -149,7 +147,9 @@ export function BodegaPieceLaneBatchControls(props: Props) {
         Lote — {props.pieces.length} pieza{props.pieces.length === 1 ? '' : 's'}
       </p>
       <p className={['mt-1 leading-snug text-slate-700', compact ? 'text-[10px]' : 'text-[11px]'].join(' ')}>
-        Inicio y fin masivos para piezas iguales o del mismo grupo.
+        {props.variant === 'perfilado'
+          ? 'Sin tiempo de taller. Cierra el lote al destino que corresponda.'
+          : 'Inicio y fin masivos para piezas iguales o del mismo grupo.'}
       </p>
 
       {notice ? (
@@ -163,28 +163,15 @@ export function BodegaPieceLaneBatchControls(props: Props) {
         </p>
       ) : null}
 
-      <button
-        type="button"
-        disabled={disabled || startEligible.length === 0}
-        className={[
-          btn,
-          'mt-3 text-white shadow-sm disabled:opacity-50',
-          props.variant === 'perfilado' ? PERF_STYLES.btnStart : tallerUi!.btnStart,
-        ].join(' ')}
-        onClick={() => void onBatchStart()}
-      >
-        Inicio masivo ({startEligible.length})
-      </button>
-
-      <div className={['mt-3 rounded-lg border bg-white p-3', compact ? 'p-2' : ''].join(' ')}>
-        <p className={['font-bold uppercase text-slate-600', compact ? 'text-[10px]' : 'text-[11px]'].join(' ')}>
-          Fin masivo ({finishEligible.length} con reloj activo)
-        </p>
-        {props.variant === 'perfilado' ? (
+      {props.variant === 'perfilado' ? (
+        <div className={['mt-3 rounded-lg border bg-white p-3', compact ? 'p-2' : ''].join(' ')}>
+          <p className={['font-bold uppercase text-slate-600', compact ? 'text-[10px]' : 'text-[11px]'].join(' ')}>
+            Fin masivo ({props.pieces.length})
+          </p>
           <div className="mt-2 flex flex-col gap-2">
             <button
               type="button"
-              disabled={disabled || finishEligible.length === 0}
+              disabled={disabled || props.pieces.length === 0}
               className={`${btn} w-full disabled:opacity-50 ${PERF_STYLES.btnFinishMain}`}
               onClick={() => void onBatchFinishPerfilado('detallado')}
             >
@@ -192,7 +179,7 @@ export function BodegaPieceLaneBatchControls(props: Props) {
             </button>
             <button
               type="button"
-              disabled={disabled || finishEligible.length === 0}
+              disabled={disabled || props.pieces.length === 0}
               className={`${btn} w-full disabled:opacity-50 ${PERF_STYLES.btnFinishAlt}`}
               onClick={() => void onBatchFinishPerfilado('cnc')}
             >
@@ -200,27 +187,43 @@ export function BodegaPieceLaneBatchControls(props: Props) {
             </button>
             <button
               type="button"
-              disabled={disabled || finishEligible.length === 0}
+              disabled={disabled || props.pieces.length === 0}
               className={`${btn} w-full disabled:opacity-50 ${PERF_STYLES.btnFinishAlt2}`}
               onClick={() => void onBatchFinishPerfilado('torno')}
             >
               Fin masivo → Torno
             </button>
           </div>
-        ) : (
+        </div>
+      ) : (
+        <>
           <button
             type="button"
-            disabled={disabled || finishEligible.length === 0}
-            className={`${btn} mt-2 w-full text-white disabled:opacity-50 ${tallerUi!.btnFinish}`}
-            onClick={() => void onBatchFinishTaller()}
+            disabled={disabled || startEligible.length === 0}
+            className={[btn, 'mt-3 text-white shadow-sm disabled:opacity-50', tallerUi!.btnStart].join(' ')}
+            onClick={() => void onBatchStart()}
           >
-            Fin masivo — {finishLabel}
+            Inicio masivo ({startEligible.length})
           </button>
-        )}
-        <p className="mt-2 text-[10px] text-slate-500">
-          Solo piezas con reloj iniciado. Usa <strong>Inicio masivo</strong> primero si hace falta.
-        </p>
-      </div>
+
+          <div className={['mt-3 rounded-lg border bg-white p-3', compact ? 'p-2' : ''].join(' ')}>
+            <p className={['font-bold uppercase text-slate-600', compact ? 'text-[10px]' : 'text-[11px]'].join(' ')}>
+              Fin masivo ({finishEligible.length} con reloj activo)
+            </p>
+            <button
+              type="button"
+              disabled={disabled || finishEligible.length === 0}
+              className={`${btn} mt-2 w-full text-white disabled:opacity-50 ${tallerUi!.btnFinish}`}
+              onClick={() => void onBatchFinishTaller()}
+            >
+              Fin masivo — {finishLabel}
+            </button>
+            <p className="mt-2 text-[10px] text-slate-500">
+              Solo piezas con reloj iniciado. Usa <strong>Inicio masivo</strong> primero si hace falta.
+            </p>
+          </div>
+        </>
+      )}
     </div>
   )
 }

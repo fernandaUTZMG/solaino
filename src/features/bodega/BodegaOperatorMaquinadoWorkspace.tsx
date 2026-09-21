@@ -10,12 +10,7 @@ import {
 import { formatSecondsAsHms } from '../../lib/maquinadoEstimatedTime'
 import { useLiveClockTick } from './useLiveClockTick.ts'
 import type { BodegaProjectPieceWithProject, PostMaquinadoRoute } from '../../lib/bodegaPiecesRepo'
-import {
-  createSignedUrlForMaquinadoRealSheet,
-  savePieceMaquinadoRealFromCapture,
-} from '../../lib/bodegaPieceMaquinadoRealCapture'
 import { completeMaquinadoPiece } from '../../lib/bodegaPiecesRepo'
-import { maquinadoElapsedSeconds, pieceMaquinadoRealLabel } from '../../lib/maquinadoEstimatedTime'
 import { bodegaPiecesSupportsPostMaquinadoRoute } from '../../lib/bodegaPiecesSchema'
 import {
   maquinadoOriginLabel,
@@ -38,18 +33,16 @@ import { BodegaPieceMaquinadoBatchControls } from './BodegaPieceMaquinadoBatchCo
 
 const LANE = 'maquinado' as const
 
-type OriginFilter = 'all' | 'cnc' | 'torno' | 'perfilado'
-
 type Props = {
   rows: BodegaProjectPieceWithProject[]
   loading: boolean
   onReload: () => Promise<void>
 }
 
+/** Solo CNC programado y cerrado sin perfilado. */
 export function BodegaOperatorMaquinadoWorkspace(props: Props) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [originFilter, setOriginFilter] = useState<OriginFilter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [intervalsByPiece, setIntervalsByPiece] = useState<Map<string, BodegaPieceIntervalRow[]>>(() => new Map())
   const [pdfLabel, setPdfLabel] = useState<string | null>(null)
@@ -57,43 +50,40 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
   const [pdfLoading, setPdfLoading] = useState(false)
   const [pdfError, setPdfError] = useState<string | null>(null)
   const [dbReady, setDbReady] = useState<boolean | null>(null)
-  const [realSheetPreviewUrl, setRealSheetPreviewUrl] = useState<string | null>(null)
-  const [captureBusy, setCaptureBusy] = useState(false)
-  const [captureErr, setCaptureErr] = useState<string | null>(null)
   const [varianceNotes, setVarianceNotes] = useState('')
   const [pieceFilter, setPieceFilter] = useState('')
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([])
 
-  const filtered = useMemo(() => {
-    const list = [...props.rows].sort((a, b) => {
-      const fa = a.bodega_projects?.folio ?? ''
-      const fb = b.bodega_projects?.folio ?? ''
-      if (fa !== fb) return fa.localeCompare(fb, 'es')
-      return a.label.localeCompare(b.label, 'es')
-    })
-    if (originFilter === 'all') return list
-    return list.filter((p) => p.programmer_bucket === originFilter)
-  }, [props.rows, originFilter])
-
-  const filterBySearch = useCallback(
-    (pieces: BodegaProjectPieceWithProject[]) => {
-      const q = pieceFilter.trim().toLowerCase()
-      if (!q) return pieces
-      return pieces.filter((p) => {
-        const label = p.label.toLowerCase()
-        const path = (p.source_path ?? '').toLowerCase()
-        const folio = (p.bodega_projects?.folio ?? '').toLowerCase()
-        const nombre = (p.bodega_projects?.nombre ?? '').toLowerCase()
-        return label.includes(q) || path.includes(q) || folio.includes(q) || nombre.includes(q)
+  const cncRows = useMemo(() => {
+    return [...props.rows]
+      .filter(
+        (p) =>
+          p.programmer_bucket === 'cnc' &&
+          p.programming_exit_kind === 'archivo_adjunto' &&
+          p.programming_finished_at != null &&
+          !p.maquinado_completed_at,
+      )
+      .sort((a, b) => {
+        const fa = a.bodega_projects?.folio ?? ''
+        const fb = b.bodega_projects?.folio ?? ''
+        if (fa !== fb) return fa.localeCompare(fb, 'es')
+        return a.label.localeCompare(b.label, 'es')
       })
-    },
-    [pieceFilter],
-  )
+  }, [props.rows])
 
-  const filteredVisible = useMemo(
-    () => filterBySearch(filtered),
-    [filtered, filterBySearch],
-  )
+  const filterBySearch = useCallback((pieces: BodegaProjectPieceWithProject[]) => {
+    const q = pieceFilter.trim().toLowerCase()
+    if (!q) return pieces
+    return pieces.filter((p) => {
+      const label = p.label.toLowerCase()
+      const path = (p.source_path ?? '').toLowerCase()
+      const folio = (p.bodega_projects?.folio ?? '').toLowerCase()
+      const nombre = (p.bodega_projects?.nombre ?? '').toLowerCase()
+      return label.includes(q) || path.includes(q) || folio.includes(q) || nombre.includes(q)
+    })
+  }, [pieceFilter])
+
+  const filteredVisible = useMemo(() => filterBySearch(cncRows), [cncRows, filterBySearch])
 
   const bulkSelectedVisibleCount = useMemo(
     () => filteredVisible.filter((p) => bulkSelectedIds.includes(p.id)).length,
@@ -101,8 +91,8 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
   )
 
   const bulkPieces = useMemo(
-    () => filtered.filter((p) => bulkSelectedIds.includes(p.id)),
-    [filtered, bulkSelectedIds],
+    () => cncRows.filter((p) => bulkSelectedIds.includes(p.id)),
+    [cncRows, bulkSelectedIds],
   )
 
   const showBatchPanel = bulkPieces.length >= 2
@@ -122,7 +112,7 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
     void (async () => {
       const next = new Map<string, BodegaPieceIntervalRow[]>()
       await Promise.all(
-        props.rows.map(async (p) => {
+        cncRows.map(async (p) => {
           const iv = await fetchPieceIntervals(p.id)
           next.set(p.id, iv)
         }),
@@ -132,52 +122,31 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
     return () => {
       cancelled = true
     }
-  }, [props.rows])
+  }, [cncRows])
 
   useEffect(() => {
-    setPieceFilter('')
-  }, [originFilter])
-
-  useEffect(() => {
-    if (filtered.length === 0) {
+    if (cncRows.length === 0) {
       setSelectedId(null)
       setBulkSelectedIds([])
       return
     }
-    if (!selectedId || !filtered.some((p) => p.id === selectedId)) {
-      setSelectedId(filtered[0]!.id)
+    if (!selectedId || !cncRows.some((p) => p.id === selectedId)) {
+      setSelectedId(cncRows[0]!.id)
     }
-    setBulkSelectedIds((prev) => prev.filter((id) => filtered.some((p) => p.id === id)))
-  }, [filtered, selectedId])
+    setBulkSelectedIds((prev) => prev.filter((id) => cncRows.some((p) => p.id === id)))
+  }, [cncRows, selectedId])
 
-  const selected = filtered.find((p) => p.id === selectedId) ?? null
+  const selected = cncRows.find((p) => p.id === selectedId) ?? null
   const selectedIntervals = selected ? (intervalsByPiece.get(selected.id) ?? []) : []
   const selectedMins = aggregatePieceMinutesByLane(selectedIntervals).get(LANE) ?? 0
-  const anyActive = filtered.some((p) =>
+  const anyActive = cncRows.some((p) =>
     pieceHasOpenMaquinadoInterval(intervalsByPiece.get(p.id) ?? [], p.id),
   )
   const clockNow = useLiveClockTick(anyActive)
-  const selectedElapsedSec = selected
-    ? maquinadoElapsedSeconds(selectedIntervals, selected.id, clockNow)
-    : 0
 
   useEffect(() => {
     setVarianceNotes(selected?.maquinado_time_variance_notes ?? '')
-    setCaptureErr(null)
   }, [selected?.id, selected?.maquinado_time_variance_notes])
-
-  useEffect(() => {
-    let cancelled = false
-    setRealSheetPreviewUrl(null)
-    const path = selected?.maquinado_real_sheet_storage_path
-    if (!path) return
-    void createSignedUrlForMaquinadoRealSheet(path).then((url) => {
-      if (!cancelled) setRealSheetPreviewUrl(url)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [selected?.id, selected?.maquinado_real_sheet_storage_path])
 
   useEffect(() => {
     setPdfPreviewUrl((prev) => {
@@ -267,32 +236,11 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
     try {
       await startPieceInterval(pieceId, LANE)
       await reloadIntervalsFor(pieceId)
+      await props.onReload()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudo iniciar el maquinado')
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function onUploadRealCapture(file: File, manualLabel?: string) {
-    if (!selected?.bodega_projects?.folio) {
-      setCaptureErr('Falta el folio del proyecto.')
-      return
-    }
-    setCaptureBusy(true)
-    setCaptureErr(null)
-    try {
-      await savePieceMaquinadoRealFromCapture({
-        projectFolio: selected.bodega_projects.folio,
-        pieceId: selected.id,
-        file,
-        manualLabel: manualLabel ?? null,
-      })
-      await props.onReload()
-    } catch (e) {
-      setCaptureErr(e instanceof Error ? e.message : 'No se leyó el tiempo de la captura')
-    } finally {
-      setCaptureBusy(false)
     }
   }
 
@@ -331,72 +279,54 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
     }
   }
 
-  const cncCount = props.rows.filter((p) => p.programmer_bucket === 'cnc').length
-  const tornoCount = props.rows.filter((p) => p.programmer_bucket === 'torno').length
-  const enCursoCount = props.rows.filter((p) => {
+  const enCursoCount = cncRows.filter((p) => {
     const iv = intervalsByPiece.get(p.id) ?? []
     return pieceHasOpenMaquinadoInterval(iv, p.id)
   }).length
-  const pendienteCount = props.rows.length - enCursoCount
+  const pendienteCount = cncRows.length - enCursoCount
 
   return (
     <section className={maquinadoUi.section}>
       <header className={maquinadoUi.header}>
-        <p className={maquinadoUi.headerKicker}>Maquinado</p>
+        <p className={maquinadoUi.headerKicker}>Maquinado CNC</p>
         <h3 className={maquinadoUi.headerTitle}>Piezas en máquina</h3>
         <p className={maquinadoUi.headerBody}>
-          Piezas de <strong className="text-white">CNC</strong> y <strong className="text-white">Torno</strong> con
-          archivo de programación (cerradas sin perfilado). Las asignadas a <strong className="text-white">Perfilado</strong>{' '}
-          van a <strong className="text-white">Taller → Perfilado</strong>. Por cada pieza:{' '}
-          <strong className="text-white">Inicio</strong> en máquina → captura SURFCAM (una por pieza o <strong className="text-white">la misma en lote</strong> si son iguales) → al terminar envías a{' '}
-          <strong className="text-white">Armado</strong> o <strong className="text-white">Detallado</strong>. La
-          programación del archivo se hace en Bodega → Programación.
+          Solo piezas <strong className="text-white">CNC</strong> programadas y cerradas sin perfilado. Por cada
+          una: <strong className="text-white">Inicio</strong> → maquina → <strong className="text-white">Fin</strong>{' '}
+          hacia Armado o Detallado. Lo que va a perfilado no entra aquí.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <span className={maquinadoUi.statChip}>{props.rows.length} en cola</span>
+          <span className={maquinadoUi.statChip}>{cncRows.length} en cola</span>
           <span className={maquinadoUi.statChipActive}>{enCursoCount} maquinando</span>
           <span className={maquinadoUi.statChipMuted}>{pendienteCount} pendientes</span>
-          <span className={maquinadoUi.statChipMuted}>
-            CNC {cncCount} · Torno {tornoCount}
-          </span>
         </div>
       </header>
 
       <div className="space-y-4 px-4 py-5 sm:px-5">
         {dbReady === false ? (
-          <div className="rounded-xl border-2 border-rose-300 bg-rose-50 px-4 py-4 text-[13px] leading-relaxed text-rose-950">
+          <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-4 text-[13px] leading-relaxed text-rose-950">
             <p className="font-bold">Configuración pendiente en Supabase</p>
             <p className="mt-2">
-              Para usar <strong>Terminación de maquinado → Armado / Detallado</strong>, abre el{' '}
-              <strong>SQL Editor</strong> y ejecuta el archivo completo{' '}
+              Ejecuta{' '}
               <code className="rounded bg-white/80 px-1 font-mono text-[11px]">
                 supabase/patch_bodega_complete_maquinado.sql
-              </code>
-              . Luego en <strong>Settings → API</strong> recarga el esquema y vuelve a cargar esta página.
+              </code>{' '}
+              y recarga el esquema de la API.
             </p>
           </div>
         ) : null}
 
         <div className={maquinadoUi.flowCard}>
-          <p className={maquinadoUi.flowTitle}>Flujo de maquinado</p>
-          <ol className={`${maquinadoUi.flowText} mt-2 list-decimal space-y-1.5 pl-5`}>
+          <p className={maquinadoUi.flowTitle}>Flujo</p>
+          <ol className={`${maquinadoUi.flowText} list-decimal space-y-1.5 pl-5`}>
             <li>
-              En <strong>CNC</strong> la pieza debe cerrarse con <strong>Terminar (sin perfilado)</strong> y archivo
-              adjunto.
+              En <strong>Programación</strong> cierra la pieza CNC con archivo (<strong>sin perfilado</strong>).
             </li>
-            <li>La pieza aparece en esta lista (CNC o Torno según su ruta).</li>
+            <li>Aparece aquí → revisa PDF y programa → <strong>Inicio</strong>.</li>
             <li>
-              Elige la pieza → revisa PDF y programa → <strong>Iniciar tiempo de maquinado</strong>.
-            </li>
-            <li>
-              Al acabar en máquina: <strong>Terminar → Armado</strong> (ensamble) o{' '}
-              <strong>Terminar → Detallado</strong> (salta armado).
+              Al acabar: <strong>Fin → Armado</strong> o <strong>Fin → Detallado</strong>.
             </li>
           </ol>
-          <p className="mt-3 text-[12px] text-amber-900/75">
-            Si elegiste <strong>Terminar → Perfilado</strong> en programación, la pieza va a Taller (perfilado), no
-            entra aquí.
-          </p>
         </div>
 
         {err ? (
@@ -405,41 +335,16 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
           </div>
         ) : null}
 
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/80">Filtrar por origen</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {(
-              [
-                ['all', 'Todas', props.rows.length],
-                ['cnc', 'CNC', cncCount],
-                ['torno', 'Torno', tornoCount],
-              ] as const
-            ).map(([id, label, count]) => (
-              <button
-                key={id}
-                type="button"
-                className={[
-                  'rounded-xl px-4 py-2 text-[13px] font-semibold transition',
-                  originFilter === id ? maquinadoUi.filterActive : maquinadoUi.filterIdle,
-                ].join(' ')}
-                onClick={() => setOriginFilter(id)}
-              >
-                {label} ({count})
-              </button>
-            ))}
-          </div>
-        </div>
-
         {props.loading ? (
-          <div className="rounded-2xl border border-amber-200 bg-white px-6 py-14 text-center text-[14px] text-amber-950/80">
+          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center text-[14px] text-slate-600">
             Cargando piezas…
           </div>
-        ) : filtered.length === 0 ? (
+        ) : cncRows.length === 0 ? (
           <div className={maquinadoUi.empty}>
-            <p className="text-[16px] font-bold text-amber-950">Nada pendiente de maquinado</p>
-            <p className="mx-auto mt-3 max-w-md text-[13px] leading-relaxed text-amber-900/85">
-              Las piezas entran cuando en la pestaña <strong>CNC</strong> terminas con{' '}
-              <strong>sin perfilado</strong> y subes el archivo de la pieza.
+            <p className="text-[16px] font-bold text-slate-900">Nada pendiente de maquinado</p>
+            <p className="mx-auto mt-3 max-w-md text-[13px] leading-relaxed text-slate-600">
+              Las piezas CNC entran cuando en <strong>Programación</strong> terminas <strong>sin perfilado</strong> y
+              subes el archivo.
             </p>
           </div>
         ) : (
@@ -447,13 +352,13 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
             <section className={maquinadoUi.listSection}>
               <div className={maquinadoUi.listHeader}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/75">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                     1. Elige pieza(s)
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     <button
                       type="button"
-                      className="rounded-lg border border-amber-300 bg-white px-2 py-1 text-[10px] font-bold text-amber-950 hover:bg-amber-50 disabled:opacity-50"
+                      className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       disabled={filteredVisible.length === 0}
                       onClick={selectAllVisiblePieces}
                     >
@@ -470,13 +375,13 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                     ) : null}
                   </div>
                 </div>
-                <p className="text-[13px] text-amber-950/80">
+                <p className="text-[13px] text-slate-600">
                   {pieceFilter.trim()
-                    ? `${filteredVisible.length} de ${filtered.length}`
-                    : filtered.length}{' '}
-                  pieza{filtered.length === 1 ? '' : 's'}
+                    ? `${filteredVisible.length} de ${cncRows.length}`
+                    : cncRows.length}{' '}
+                  pieza{cncRows.length === 1 ? '' : 's'} CNC
                   {bulkSelectedIds.length > 0 ? (
-                    <span className="font-semibold">
+                    <span className="font-semibold text-slate-800">
                       {' '}
                       · {bulkSelectedIds.length} seleccionada{bulkSelectedIds.length === 1 ? '' : 's'}
                       {bulkSelectedVisibleCount > 0 && pieceFilter.trim()
@@ -490,15 +395,15 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                 type="search"
                 value={pieceFilter}
                 onChange={(e) => setPieceFilter(e.target.value)}
-                placeholder="Buscar pieza (ej. base, folio)…"
-                className="mx-4 mb-2 w-[calc(100%-2rem)] rounded-xl border border-amber-200 px-3 py-2 text-[13px] shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200/60 sm:mx-5"
+                placeholder="Buscar pieza…"
+                className="mx-4 mb-2 w-[calc(100%-2rem)] rounded-xl border border-slate-200 px-3 py-2 text-[13px] shadow-sm outline-none focus:border-section-navy/40 focus:ring-2 focus:ring-section-navy/15 sm:mx-5"
                 autoComplete="off"
               />
-              <ul className="max-h-[min(520px,55vh)] divide-y divide-amber-100/80 overflow-y-auto overscroll-contain">
+              <ul className="max-h-[min(520px,55vh)] divide-y divide-slate-100 overflow-y-auto overscroll-contain">
                 {filteredVisible.length === 0 ? (
-                  <li className="px-4 py-6 text-center text-[12px] text-slate-600 sm:px-5">
-                    {filtered.length === 0
-                      ? 'Sin piezas en este filtro.'
+                  <li className="px-4 py-6 text-center text-[12px] text-slate-500 sm:px-5">
+                    {cncRows.length === 0
+                      ? 'Sin piezas.'
                       : `Ninguna coincide con «${pieceFilter.trim()}».`}
                   </li>
                 ) : null}
@@ -509,7 +414,6 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                   const selectedRow = r.id === selectedId
                   const bulkChecked = bulkSelectedIds.includes(r.id)
                   const proj = r.bodega_projects
-                  const pieceReal = pieceMaquinadoRealLabel(r)
                   return (
                     <li key={r.id}>
                       <div
@@ -524,7 +428,7 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                         >
                           <input
                             type="checkbox"
-                            className="h-4 w-4 rounded border-amber-400 text-amber-700"
+                            className="h-4 w-4 rounded border-slate-400 text-section-navy"
                             checked={bulkChecked}
                             onChange={() => toggleBulkPiece(r.id)}
                           />
@@ -537,38 +441,37 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                           ].join(' ')}
                           onClick={() => setSelectedId(r.id)}
                         >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={[
-                              'rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
-                              maquinadoOriginTone(r),
-                            ].join(' ')}
-                          >
-                            {maquinadoOriginLabel(r)}
-                          </span>
-                          <span
-                            className={[
-                              'rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase',
-                              maquinadoPieceStatusTone(status),
-                            ].join(' ')}
-                          >
-                            {maquinadoPieceStatusLabel(status)}
-                          </span>
-                          {pieceReal ? (
-                            <span className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-900">
-                              {pieceReal}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={[
+                                'rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                                maquinadoOriginTone(r),
+                              ].join(' ')}
+                            >
+                              {maquinadoOriginLabel(r)}
                             </span>
-                          ) : null}
-                        </div>
-                        <span className="truncate font-mono text-[11px] text-amber-900/60">{proj?.folio ?? '—'}</span>
-                        <span className="truncate text-[14px] font-bold text-slate-900">{r.label}</span>
-                        <span className="truncate text-[12px] text-slate-600">{proj?.nombre ?? 'Proyecto'}</span>
-                        <span className="font-mono text-[12px] font-bold tabular-nums text-amber-950">
-                          {formatSecondsAsHms(pieceLaneElapsedSeconds(iv, r.id, LANE, clockNow))}
-                          {active ? (
-                            <span className="ml-1.5 text-[10px] font-bold uppercase text-emerald-700">●</span>
-                          ) : null}
-                        </span>
+                            <span
+                              className={[
+                                'rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase',
+                                maquinadoPieceStatusTone(status),
+                              ].join(' ')}
+                            >
+                              {maquinadoPieceStatusLabel(status)}
+                            </span>
+                          </div>
+                          <span className="truncate font-mono text-[11px] text-slate-400">
+                            {proj?.folio ?? '—'}
+                          </span>
+                          <span className="truncate text-[14px] font-bold text-slate-900">{r.label}</span>
+                          <span className="truncate text-[12px] text-slate-500">
+                            {proj?.nombre ?? 'Proyecto'}
+                          </span>
+                          <span className="font-mono text-[12px] font-bold tabular-nums text-section-navy">
+                            {formatSecondsAsHms(pieceLaneElapsedSeconds(iv, r.id, LANE, clockNow))}
+                            {active ? (
+                              <span className="ml-1.5 text-[10px] font-bold uppercase text-emerald-700">●</span>
+                            ) : null}
+                          </span>
                         </button>
                       </div>
                     </li>
@@ -576,7 +479,7 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                 })}
               </ul>
               {bulkPieces.length > 0 && !showBatchPanel ? (
-                <div className="border-t border-amber-100 px-4 py-3 sm:px-5">
+                <div className="border-t border-slate-100 px-4 py-3 sm:px-5">
                   <BodegaPieceMaquinadoBatchControls
                     compact
                     pieces={bulkPieces}
@@ -590,12 +493,12 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
             </section>
 
             <section className="min-w-0">
-              <div className="mb-3 hidden border-b border-amber-100 pb-2 lg:block">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900/75">
+              <div className="mb-3 hidden border-b border-slate-100 pb-2 lg:block">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                   {showBatchPanel ? '2. Lote seleccionado' : '2. Trabajar pieza'}
                 </p>
-                <p className="text-[13px] text-amber-950/80">
-                  {showBatchPanel ? 'Tiempo, captura y destino en varias piezas' : 'Documentos, tiempo y destino'}
+                <p className="text-[13px] text-slate-600">
+                  {showBatchPanel ? 'Inicio y fin en varias piezas' : 'Documentos, tiempo e Inicio/Fin'}
                 </p>
               </div>
               {showBatchPanel ? (
@@ -607,7 +510,7 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                     </p>
                   </div>
                   <div className="px-5 py-4 sm:px-6">
-                    <ul className="max-h-36 space-y-1 overflow-y-auto text-[12px] text-amber-100/90">
+                    <ul className="mb-3 max-h-36 space-y-1 overflow-y-auto text-[12px] text-slate-600">
                       {bulkPieces.map((p) => (
                         <li key={p.id} className="truncate font-medium">
                           {p.bodega_projects?.folio ? `${p.bodega_projects.folio} · ` : ''}
@@ -627,9 +530,9 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
               ) : selected ? (
                 <>
                   {bulkPieces.length > 1 ? (
-                    <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-950">
-                      Tienes <strong>{bulkPieces.length} piezas</strong> marcadas. Usa el panel de lote (arriba en la
-                      lista o esta columna con 2+) para inicio, captura y fin masivos.
+                    <p className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-relaxed text-slate-700">
+                      Tienes <strong>{bulkPieces.length} piezas</strong> marcadas. Usa el panel de lote para inicio y
+                      fin masivos.
                     </p>
                   ) : null}
                   <BodegaPieceMaquinadoControls
@@ -638,12 +541,7 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                     projectFolio={selected.bodega_projects?.folio}
                     projectNombre={selected.bodega_projects?.nombre}
                     minutes={selectedMins}
-                    elapsedSeconds={selectedElapsedSec}
                     intervals={selectedIntervals}
-                    realSheetPreviewUrl={realSheetPreviewUrl}
-                    captureBusy={captureBusy}
-                    captureErr={captureErr}
-                    onUploadRealCapture={onUploadRealCapture}
                     varianceNotes={varianceNotes}
                     onVarianceNotesChange={setVarianceNotes}
                     canWork
@@ -658,8 +556,8 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
                   />
                 </>
               ) : (
-                <div className="flex min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 px-6 text-center">
-                  <p className="max-w-xs text-[14px] text-amber-950/85">
+                <div className="flex min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 text-center">
+                  <p className="max-w-xs text-[14px] text-slate-600">
                     Selecciona una pieza de la lista para registrar el maquinado.
                   </p>
                 </div>

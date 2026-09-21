@@ -1,8 +1,15 @@
-import type { DragEvent } from 'react'
+import { useEffect, useState, type DragEvent } from 'react'
+import {
+  pieceEligibleForProjectPhotos,
+  photosForPiece,
+} from '../../lib/bodegaPiecePhotosFlow'
 import type { BodegaProjectPieceRow, ProgrammerBucket } from '../../lib/bodegaPiecesRepo'
 import { PIECE_FINISH_SPEC_LABELS } from '../../lib/bodegaPiecesRepo'
 import { canReassignProgrammerCncTorno } from '../../lib/bodegaProgrammerFlow'
 import { pieceNeedsSecondProgrammingSession } from '../../lib/bodegaPostPerfiladoProgramming'
+import { pieceNeedsMaquinado } from '../../lib/bodegaProjectPipelineProgress'
+import type { ProjectPiecePhotoRow } from '../../lib/piecePhotosRepo'
+import { createSignedUrlForPiecePhoto } from '../../lib/piecePhotosRepo'
 import { labelFromZipPath } from '../../lib/zipDesignPackage'
 import { BodegaPiecePlanoAttach } from './BodegaPiecePlanoAttach.tsx'
 import { programmingExitLabelEs } from './BodegaPieceProgrammingControls.tsx'
@@ -38,31 +45,138 @@ const BUCKET_META: Record<
   },
 }
 
-type Stage = { id: string; label: string; done: boolean; hint?: string }
+type Stage = { id: string; label: string; done: boolean; hint?: string; skip?: boolean }
 
-function pieceStages(piece: BodegaProjectPieceRow): Stage[] {
-  const perfiladoDone = Boolean(piece.perfilado_completed_at)
-  let perfiladoHint: string | undefined
-  if (perfiladoDone && piece.post_perfilado_programming_bucket && !piece.programming_finished_at) {
-    perfiladoHint = `→ ${piece.post_perfilado_programming_bucket === 'torno' ? 'Torno' : 'CNC'}`
+function pieceSkipsTallerStages(piece: BodegaProjectPieceRow): boolean {
+  return (
+    piece.programmer_bucket === 'torno' ||
+    piece.programmer_bucket === 'perfilado' ||
+    piece.programmer_bucket === 'accesorios'
+  )
+}
+
+function pieceStages(piece: BodegaProjectPieceRow, hasPhoto: boolean): Stage[] {
+  // Torno / perfilado / accesorios: sin tiempo ni proceso de taller → completo al dirigirse.
+  if (pieceSkipsTallerStages(piece)) {
+    const destino =
+      piece.programmer_bucket === 'torno'
+        ? 'Torno'
+        : piece.programmer_bucket === 'perfilado'
+          ? 'Perfilado'
+          : 'Accesorios'
+    return [
+      {
+        id: 'destino',
+        label: destino,
+        done: true,
+        hint: 'Sin tiempo',
+      },
+      {
+        id: 'foto',
+        label: 'Foto',
+        done: hasPhoto,
+        hint: hasPhoto ? undefined : 'Pendiente',
+      },
+    ]
   }
-  return [
+
+  // CNC: el cierre de programación define la ruta (→ Perfilado vs archivo → Maquinado).
+  const exit = piece.programming_exit_kind
+  const wentToPerfilado =
+    exit === 'a_perfilado' || Boolean(piece.perfilado_completed_at) || Boolean(piece.post_perfilado_programming_bucket)
+  const skippedPerfilado = exit === 'archivo_adjunto' && !wentToPerfilado
+  const needsMaq = pieceNeedsMaquinado(piece)
+
+  let perfiladoDone = Boolean(piece.perfilado_completed_at)
+  let perfiladoHint: string | undefined
+  if (skippedPerfilado) {
+    perfiladoDone = true
+    perfiladoHint = 'No aplica'
+  } else if (perfiladoDone && piece.post_perfilado_programming_bucket && !piece.programming_finished_at) {
+    perfiladoHint = `→ ${piece.post_perfilado_programming_bucket === 'torno' ? 'Torno' : 'CNC'}`
+  } else if (exit === 'a_perfilado' && !perfiladoDone) {
+    perfiladoHint = 'En taller'
+  }
+
+  let maquinadoDone = Boolean(piece.maquinado_completed_at)
+  let maquinadoHint: string | undefined
+  if (!needsMaq) {
+    // Terminé → Perfilado (u otra ruta sin archivo CNC): maquinado no aplica.
+    maquinadoDone = true
+    maquinadoHint = exit === 'a_perfilado' ? 'No aplica' : piece.programming_finished_at ? 'No aplica' : undefined
+    // Si aún no terminó programación, no marcar maquinado como listo con "No aplica".
+    if (!piece.programming_finished_at && exit == null) {
+      maquinadoDone = false
+      maquinadoHint = undefined
+    }
+  }
+
+  const stages: Stage[] = [
     { id: 'perfilado', label: 'Perfilado', done: perfiladoDone, hint: perfiladoHint },
-    { id: 'maquinado', label: 'Maquinado', done: Boolean(piece.maquinado_completed_at) },
+    { id: 'maquinado', label: 'Maquinado', done: maquinadoDone, hint: maquinadoHint },
     { id: 'armado', label: 'Armado', done: Boolean(piece.armado_completed_at) },
     { id: 'detallado', label: 'Detallado', done: Boolean(piece.detallado_completed_at) },
   ]
+  // Tras detallado (o si ya es elegible), la foto de cierre es la etapa que falta.
+  if (pieceEligibleForProjectPhotos(piece)) {
+    stages.push({
+      id: 'foto',
+      label: 'Foto',
+      done: hasPhoto,
+      hint: hasPhoto ? undefined : 'Cierre',
+    })
+  }
+  return stages
+}
+
+function PiecePhotoThumb(props: { path: string; name: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void createSignedUrlForPiecePhoto(props.path).then((u) => {
+      if (!cancelled) setUrl(u)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [props.path])
+  if (!url) {
+    return (
+      <div className="flex aspect-square items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-[11px] text-slate-500">
+        …
+      </div>
+    )
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+      title={props.name}
+    >
+      <img src={url} alt={props.name} className="h-20 w-full object-cover" />
+    </a>
+  )
 }
 
 function StageProgress({ stages }: { stages: Stage[] }) {
   const doneCount = stages.filter((s) => s.done).length
   const pct = stages.length ? Math.round((doneCount / stages.length) * 100) : 0
+  const allDone = stages.length > 0 && doneCount === stages.length
 
   return (
     <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-3 py-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Avance en taller</p>
-        <span className="font-mono text-[11px] font-bold text-slate-700">{pct}%</span>
+        <span
+          className={[
+            'font-mono text-[11px] font-bold',
+            allDone ? 'text-emerald-700' : 'text-slate-700',
+          ].join(' ')}
+        >
+          {allDone ? 'Completo' : `${pct}%`}
+        </span>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
         <div
@@ -70,7 +184,16 @@ function StageProgress({ stages }: { stages: Stage[] }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div
+        className={[
+          'mt-3 grid gap-2',
+          stages.length <= 2
+            ? 'grid-cols-2'
+            : stages.length === 5
+              ? 'grid-cols-2 sm:grid-cols-5'
+              : 'grid-cols-2 sm:grid-cols-4',
+        ].join(' ')}
+      >
         {stages.map((s) => (
           <div
             key={s.id}
@@ -88,7 +211,7 @@ function StageProgress({ stages }: { stages: Stage[] }) {
               {s.label}
             </p>
             <p className={['mt-0.5 text-[11px] font-semibold', s.done ? 'text-emerald-900' : 'text-slate-600'].join(' ')}>
-              {s.done ? 'Listo' : 'Pendiente'}
+              {s.done ? 'Completo' : 'Pendiente'}
               {s.hint ? <span className="block font-normal text-emerald-800/90">{s.hint}</span> : null}
             </p>
           </div>
@@ -109,6 +232,10 @@ export type BodegaPieceWorkflowCardProps = {
   showRoutePicker: boolean
   busy: boolean
   dragOver: boolean
+  photos: ProjectPiecePhotoRow[]
+  canUploadPhotos: boolean
+  photoUploadBusy: boolean
+  onUploadPhotos: (pieceId: string, files: File[]) => void | Promise<void>
   pathDraft?: string
   onPathDraftChange?: (value: string) => void
   onSavePath?: () => void
@@ -124,12 +251,15 @@ export function BodegaPieceWorkflowCard(props: BodegaPieceWorkflowCardProps) {
   const p = props.piece
   const bucket = p.programmer_bucket
   const bucketMeta = bucket ? BUCKET_META[bucket] : null
-  const stages = pieceStages(p)
+  const piecePhotos = photosForPiece(props.photos, p.id)
+  const hasPhoto = piecePhotos.length > 0
+  const showPhotoSection = pieceEligibleForProjectPhotos(p)
+  const stages = pieceStages(p, hasPhoto)
   const pathLabel = p.source_path ? labelFromZipPath(p.source_path) : null
   const finishLabel = p.finish_spec ? PIECE_FINISH_SPEC_LABELS[p.finish_spec] : null
   const progDone = Boolean(p.programming_finished_at)
-  const showProgBlock =
-    props.routesLocked && (bucket === 'cnc' || bucket === 'torno')
+  // Solo CNC se programa; torno/perfilado/accesorios no llevan tiempo de oficina.
+  const showProgBlock = props.routesLocked && bucket === 'cnc'
 
   return (
     <article
@@ -188,6 +318,79 @@ export function BodegaPieceWorkflowCard(props: BodegaPieceWorkflowCardProps) {
 
       <div className="space-y-4 px-4 py-4 sm:px-5">
         <StageProgress stages={stages} />
+
+        {showPhotoSection ? (
+          <div
+            className={[
+              'rounded-xl border px-3.5 py-3',
+              hasPhoto
+                ? 'border-emerald-200 bg-emerald-50/70'
+                : 'border-amber-200 bg-amber-50/60',
+            ].join(' ')}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                  Foto de esta pieza
+                </p>
+                <p className="mt-0.5 text-[13px] font-semibold text-slate-900">
+                  {hasPhoto
+                    ? `${piecePhotos.length} foto${piecePhotos.length === 1 ? '' : 's'} · ${p.label}`
+                    : `Falta foto · ${p.label}`}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                  {pieceSkipsTallerStages(p)
+                    ? 'Esta pieza no lleva taller: sube la evidencia aquí para el cierre.'
+                    : 'Detallado terminado — sube la foto de cierre de esta pieza.'}
+                </p>
+              </div>
+              <span
+                className={[
+                  'inline-flex rounded-lg px-2 py-1 text-[10px] font-bold uppercase tracking-wide',
+                  hasPhoto ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white',
+                ].join(' ')}
+              >
+                {hasPhoto ? 'Con foto' : 'Sin foto'}
+              </span>
+            </div>
+
+            {props.canUploadPhotos ? (
+              <label
+                className={[
+                  'mt-3 flex min-h-[72px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-3 py-4 text-center transition',
+                  props.photoUploadBusy || props.busy
+                    ? 'pointer-events-none border-slate-200 bg-slate-100 opacity-60'
+                    : 'border-slate-300 bg-white hover:border-section-navy/40 hover:bg-sky-50/50',
+                ].join(' ')}
+              >
+                <span className="text-[13px] font-semibold text-slate-900">
+                  {props.photoUploadBusy ? 'Subiendo…' : 'Elegir imagen(es) para esta pieza'}
+                </span>
+                <span className="mt-0.5 text-[11px] text-slate-500">JPG, PNG, WEBP — se guardan en {p.label}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  disabled={props.photoUploadBusy || props.busy}
+                  onChange={(e) => {
+                    const batch = e.target.files ? Array.from(e.target.files) : []
+                    e.currentTarget.value = ''
+                    if (batch.length > 0) void props.onUploadPhotos(p.id, batch)
+                  }}
+                />
+              </label>
+            ) : null}
+
+            {piecePhotos.length > 0 ? (
+              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {piecePhotos.map((ph) => (
+                  <PiecePhotoThumb key={ph.id} path={ph.storage_path} name={ph.filename} />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="rounded-xl border border-sky-100 bg-sky-50/50 px-3 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-wide text-sky-900">Plano PDF</p>

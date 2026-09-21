@@ -23,6 +23,8 @@ export type AppNotificationRow = {
     rejected_count?: number
     approved_count?: number
     tab?: string
+    filename?: string
+    piece_count?: number
   }
   read_at: string | null
   created_at: string
@@ -59,6 +61,8 @@ function mapRow(r: Record<string, unknown>): AppNotificationRow {
       rejected_count: typeof payload.rejected_count === 'number' ? payload.rejected_count : undefined,
       approved_count: typeof payload.approved_count === 'number' ? payload.approved_count : undefined,
       tab: payload.tab != null ? String(payload.tab) : undefined,
+      filename: payload.filename != null ? String(payload.filename) : undefined,
+      piece_count: typeof payload.piece_count === 'number' ? payload.piece_count : undefined,
     },
     read_at: r.read_at != null ? String(r.read_at) : null,
     created_at: String(r.created_at ?? ''),

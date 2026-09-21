@@ -20,7 +20,7 @@ En el bucket → **Settings** → CORS, ejemplo:
 ```json
 [
   {
-    "AllowedOrigins": ["http://localhost:5273", "https://TU-DOMINIO-PRODUCCION"],
+    "AllowedOrigins": ["http://localhost:5273", "http://127.0.0.1:5273", "https://TU-DOMINIO-PRODUCCION"],
     "AllowedMethods": ["GET", "PUT", "HEAD"],
     "AllowedHeaders": ["*"],
     "ExposeHeaders": ["ETag"],

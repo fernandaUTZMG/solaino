@@ -55,11 +55,10 @@ export function projectUsesOperationalPipeline(status: string): boolean {
 }
 
 export function pieceNeedsMaquinado(p: BodegaProjectPieceRow): boolean {
-  if (p.programmer_bucket === 'perfilado' || p.programmer_bucket === 'accesorios') return false
-  return (
-    (p.programmer_bucket === 'cnc' || p.programmer_bucket === 'torno') &&
-    p.programming_exit_kind === 'archivo_adjunto'
-  )
+  if (p.programmer_bucket === 'perfilado' || p.programmer_bucket === 'accesorios' || p.programmer_bucket === 'torno') {
+    return false
+  }
+  return p.programmer_bucket === 'cnc' && p.programming_exit_kind === 'archivo_adjunto'
 }
 
 function pieceHasPhoto(pieceId: string, photos: ProjectPiecePhotoRow[]): boolean {
@@ -82,7 +81,9 @@ export function pieceProgramacionComplete(
   routesConfirmed: boolean,
 ): boolean {
   if (!routesConfirmed || p.programmer_bucket == null) return false
-  if (p.programmer_bucket === 'perfilado' || p.programmer_bucket === 'accesorios') return true
+  if (p.programmer_bucket === 'perfilado' || p.programmer_bucket === 'accesorios' || p.programmer_bucket === 'torno') {
+    return true
+  }
   return p.programming_finished_at != null
 }
 
@@ -91,11 +92,9 @@ export function pieceTiemposComplete(
   intervals: BodegaPieceIntervalRow[],
   routesConfirmed = false,
 ): boolean {
-  if (p.programmer_bucket === 'perfilado') {
-    if (!routesConfirmed) return false
-    return p.perfilado_completed_at != null
+  if (p.programmer_bucket === 'perfilado' || p.programmer_bucket === 'accesorios' || p.programmer_bucket === 'torno') {
+    return routesConfirmed
   }
-  if (p.programmer_bucket === 'accesorios') return routesConfirmed
   if (pieceNeedsSecondProgrammingSession(p)) {
     return p.programming_finished_at != null
   }
@@ -109,7 +108,9 @@ export function pieceTiemposComplete(
 }
 
 function applicableStagesForPiece(p: BodegaProjectPieceRow): BodegaPipelineStageId[] {
-  if (p.programmer_bucket === 'accesorios') return []
+  if (p.programmer_bucket === 'accesorios' || p.programmer_bucket === 'torno' || p.programmer_bucket === 'perfilado') {
+    return []
+  }
   const stages: BodegaPipelineStageId[] = ['programacion', 'tiempos']
   if (pieceNeedsMaquinado(p)) stages.push('maquinado')
   stages.push('detallado', 'armado', 'fotos')
@@ -124,6 +125,11 @@ export function pieceStageComplete(args: {
   routesConfirmed: boolean
 }): boolean {
   const { piece: p, stage, intervals, photos, routesConfirmed } = args
+  const skipsMfg =
+    p.programmer_bucket === 'accesorios' ||
+    p.programmer_bucket === 'torno' ||
+    p.programmer_bucket === 'perfilado'
+
   switch (stage) {
     case 'programacion':
       return pieceProgramacionComplete(p, routesConfirmed)
@@ -133,12 +139,18 @@ export function pieceStageComplete(args: {
       if (!pieceNeedsMaquinado(p)) return true
       return p.maquinado_completed_at != null
     case 'detallado':
+      // Torno / perfilado / accesorios no pasan por detallado de taller.
+      if (skipsMfg) return true
       return p.detallado_completed_at != null
     case 'armado':
+      if (skipsMfg) return true
       return p.armado_completed_at != null
     case 'fotos':
       return pieceHasPhoto(p.id, photos)
     case 'completo':
+      if (skipsMfg) {
+        return routesConfirmed && pieceHasPhoto(p.id, photos)
+      }
       return (
         pieceProgramacionComplete(p, routesConfirmed) &&
         pieceTiemposComplete(p, intervals, routesConfirmed) &&
@@ -158,7 +170,14 @@ export function piecePipelineProgressPct(args: {
   photos: ProjectPiecePhotoRow[]
   routesConfirmed: boolean
 }): number {
-  if (args.piece.programmer_bucket === 'accesorios' && args.routesConfirmed) return 100
+  if (
+    (args.piece.programmer_bucket === 'accesorios' ||
+      args.piece.programmer_bucket === 'torno' ||
+      args.piece.programmer_bucket === 'perfilado') &&
+    args.routesConfirmed
+  ) {
+    return 100
+  }
   const stages = applicableStagesForPiece(args.piece)
   if (stages.length === 0) return 0
   const weight = 100 / stages.length

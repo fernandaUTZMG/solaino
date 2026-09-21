@@ -42,12 +42,16 @@ export function BodegaProjectTallerWorkspace(props: {
 
   return (
     <div className="space-y-5">
-      <p className="rounded-xl border border-teal-200/80 bg-teal-50/80 px-4 py-3 text-[13px] text-teal-950">
-        Piezas del proyecto <strong className="font-mono">{props.projectFolio}</strong> en etapa de taller. Elige la
-        pestaña según el trabajo: <strong>Perfilado</strong>, <strong>Detallado</strong> o <strong>Armado</strong>.
+      <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-relaxed text-slate-700">
+        Piezas del proyecto <strong className="font-mono text-section-navy">{props.projectFolio}</strong> en taller.
+        Elige la etapa: <strong>Perfilado</strong>, <strong>Detallado</strong> o <strong>Armado</strong>.
       </p>
 
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Etapas de taller del proyecto">
+      <div
+        className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
+        role="tablist"
+        aria-label="Etapas de taller del proyecto"
+      >
         {TALLER_STAGE_TAB_ORDER.map((id) => (
           <button
             key={id}
@@ -55,14 +59,10 @@ export function BodegaProjectTallerWorkspace(props: {
             role="tab"
             aria-selected={tab === id}
             className={[
-              'min-w-[6.5rem] rounded-xl px-4 py-2.5 text-[13px] font-semibold transition',
+              'min-h-[44px] min-w-[6.5rem] rounded-lg px-4 py-2.5 text-[13px] font-semibold transition outline-none focus-visible:ring-2 focus-visible:ring-section-navy/40',
               tab === id
-                ? id === 'perfilado'
-                  ? 'bg-teal-700 text-white shadow-sm'
-                  : id === 'detallado'
-                    ? 'bg-indigo-700 text-white shadow-sm'
-                    : 'bg-emerald-700 text-white shadow-sm'
-                : 'border border-slate-200 bg-white text-slate-800 hover:bg-slate-50',
+                ? 'bg-section-navy text-white shadow-sm'
+                : 'text-slate-700 hover:bg-slate-100',
             ].join(' ')}
             onClick={() => setTab(id)}
           >

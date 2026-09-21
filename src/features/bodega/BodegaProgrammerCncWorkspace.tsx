@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppRole } from '../../lib/roles'
-import { canAttachPiecePlanoInProduction, canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/roles'
+import { canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/roles'
 import type { BodegaProjectPieceRow } from '../../lib/bodegaPiecesRepo'
 import type { ProgrammingExitKind } from '../../lib/bodegaPiecesRepo'
 import {
@@ -19,15 +19,11 @@ import {
 } from '../../lib/bodegaPostPerfiladoProgramming'
 import {
   pieceLaneForModule,
-  piecesForCncModule,
+  piecesPendingInCncModule,
   programmerCncModulesWithPieces,
 } from '../../lib/bodegaProgrammerFlow'
-import { BodegaPieceCncTornoReassign } from './BodegaPieceCncTornoReassign.tsx'
-import { BodegaPieceDesignPlanoSection } from './BodegaPieceDesignPlanoSection.tsx'
-import { BodegaPieceMaquinadoEstimateForm } from './BodegaPieceMaquinadoEstimateForm.tsx'
 import { BodegaPieceProgrammingControls } from './BodegaPieceProgrammingControls.tsx'
 import { BodegaPieceProgrammingBatchControls } from './BodegaPieceProgrammingBatchControls.tsx'
-import { updatePieceProgrammerBucket } from '../../lib/bodegaPiecesRepo'
 import { progSeccionForModule, progTituloForModule, progWorkspacePalette } from './bodegaProgramacionUi.ts'
 
 type CncModule = 'programacion' | 'torno'
@@ -53,7 +49,6 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
   const prog = canUploadBodegaMachine(props.role)
   const adminLike = canManageBodegaLikeAdmin(props.role)
   const canWork = prog || adminLike
-  const canAttachPlano = canAttachPiecePlanoInProduction(props.role)
   const spacious = props.spacious ?? false
   const palette = progWorkspacePalette(props.activeModule)
 
@@ -67,7 +62,7 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
   const modulesWithPieces = useMemo(() => programmerCncModulesWithPieces(props.pieces), [props.pieces])
   const showModuleTabs = spacious && modulesWithPieces.length > 1
   const modulePieces = useMemo(
-    () => piecesForCncModule(props.pieces, props.activeModule),
+    () => piecesPendingInCncModule(props.pieces, props.activeModule),
     [props.pieces, props.activeModule],
   )
   const lane = pieceLaneForModule(props.activeModule)
@@ -230,26 +225,6 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
     }
   }
 
-  async function onReassignBucket(pieceId: string, bucket: 'cnc' | 'torno') {
-    if (!canWork) return
-    setBusy(true)
-    setErr(null)
-    try {
-      await updatePieceProgrammerBucket({ pieceId, programmerBucket: bucket })
-      await props.onReload()
-      await reloadIntervals()
-      if (bucket === 'torno' && props.activeModule === 'programacion') {
-        props.onModuleChange('torno')
-      } else if (bucket === 'cnc' && props.activeModule === 'torno') {
-        props.onModuleChange('programacion')
-      }
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se cambió el destino')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function onReplaceFile(p: BodegaProjectPieceRow, file: File) {
     if (!canWork) return
     setBusy(true)
@@ -329,7 +304,7 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
         <div className="border-b border-programacion-100 px-4 py-3 sm:px-5">
           <div role="tablist" aria-label="CNC o Torno" className="grid grid-cols-2 gap-2">
             {(['programacion', 'torno'] as const).map((m) => {
-              const count = piecesForCncModule(props.pieces, m).length
+              const count = piecesPendingInCncModule(props.pieces, m).length
               if (count === 0) return null
               const tabPalette = progWorkspacePalette(m)
               return (
@@ -358,7 +333,13 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
         ) : null}
 
         {modulePieces.length === 0 ? (
-          <p className={['text-[14px]', palette.label].join(' ')}>No hay piezas asignadas a {moduleLabel}.</p>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-[14px] text-emerald-950">
+            <p className="font-bold">Programación de {moduleLabel} lista</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-emerald-900/90">
+              No quedan piezas pendientes aquí. Las que terminaste con archivo ya salieron a{' '}
+              <strong>maquinado</strong> (o a perfilado si así las cerraste).
+            </p>
+          </div>
         ) : (
           <div className={[spacious ? 'grid gap-6 lg:grid-cols-[minmax(220px,320px)_1fr]' : 'space-y-4'].join(' ')}>
             <div>
@@ -455,12 +436,14 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                           onClick={() => setSelectedPieceId(p.id)}
                         >
                           <p className="font-bold text-slate-900">{p.label}</p>
-                          <p className={['mt-1 font-mono text-[13px] font-bold tabular-nums', palette.meta].join(' ')}>
-                            {formatSecondsAsHms(pieceSec)}
-                            {pieceActive ? (
-                              <span className="ml-1.5 text-[10px] font-bold uppercase text-emerald-700">●</span>
-                            ) : null}
-                          </p>
+                          {pieceActive || pieceSec > 0 ? (
+                            <p className={['mt-1 font-mono text-[13px] font-bold tabular-nums', palette.meta].join(' ')}>
+                              {formatSecondsAsHms(pieceSec)}
+                              {pieceActive ? (
+                                <span className="ml-1.5 text-[10px] font-bold uppercase text-emerald-700">●</span>
+                              ) : null}
+                            </p>
+                          ) : null}
                           <p className={['mt-0.5 text-[10px]', palette.meta].join(' ')}>
                             {afterPerfilado
                               ? 'Tras perfilado'
@@ -526,26 +509,13 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                 <p className="mt-2 text-[13px] text-slate-600">
                   Acabado: <span className="font-semibold">{selectedPiece.finish_spec ?? '—'}</span>
                 </p>
-                <div className="mt-4">
-                  <BodegaPieceCncTornoReassign
-                    piece={selectedPiece}
-                    intervals={intervalRows}
-                    busy={busy}
-                    onReassign={(bucket) => onReassignBucket(selectedPiece.id, bucket)}
-                  />
-                </div>
-                <div className="mt-5">
-                  <BodegaPieceDesignPlanoSection
-                    piece={selectedPiece}
-                    projectId={props.projectId}
-                    projectFolio={props.projectFolio}
-                    designZipPaths={props.designZipPaths}
-                    canAttach={canAttachPlano}
-                    busy={busy}
-                    autoPreview
-                    onUpdated={props.onReload}
-                  />
-                </div>
+                <p className="mt-3 rounded-xl border border-programacion-200/90 bg-programacion-50/60 px-3 py-3 text-[13px] text-slate-800">
+                  Destino: <strong>CNC</strong>
+                  <span className="mt-1 block text-[12px] text-slate-600">
+                    Lo definió diseño. Si hay un contratiempo, déjalo en comentarios; no se usa tiempo estimado de
+                    máquina.
+                  </span>
+                </p>
                 {bulkPieces.length > 1 ? (
                   <p className="mt-4 rounded-xl border border-programacion-200 bg-programacion-50/80 px-4 py-3 text-[12px] leading-relaxed text-programacion-950">
                     Tienes <strong>{bulkPieces.length} piezas</strong> marcadas a la izquierda. Usa{' '}
@@ -566,16 +536,6 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                     onStart={() => onProgStart(selectedPiece)}
                     onFinish={(kind, file) => onProgFinish(selectedPiece, kind, file)}
                     onReplaceFile={(file) => onReplaceFile(selectedPiece, file)}
-                  />
-                </div>
-                <div className="mt-5">
-                  <BodegaPieceMaquinadoEstimateForm
-                    piece={selectedPiece}
-                    projectFolio={props.projectFolio}
-                    module={props.activeModule}
-                    canEdit={canWork}
-                    busy={busy}
-                    onUpdated={props.onReload}
                   />
                 </div>
               </div>

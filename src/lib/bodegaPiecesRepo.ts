@@ -193,8 +193,8 @@ function mergePerfiladoQueueRows(
   for (const row of [...(fromProgramming ?? []), ...(fromAssignment ?? [])]) {
     const id = String(row.id)
     if (byId.has(id)) continue
+    if (row.programmer_bucket === 'perfilado') continue
     const proj = row.bodega_projects as ProjectSnippetForPiece | null
-    if (row.programmer_bucket === 'perfilado' && !proj?.programming_routes_confirmed_at) continue
     byId.set(id, {
       ...normalizePieceRow(row),
       bodega_projects: proj,
@@ -247,7 +247,7 @@ export async function fetchPiecesQueueMaquinado(): Promise<BodegaProjectPieceWit
   const { data, error } = await sb
     .from('bodega_project_pieces')
     .select(sel)
-    .in('programmer_bucket', ['cnc', 'torno'])
+    .in('programmer_bucket', ['cnc'])
     .eq('programming_exit_kind', 'archivo_adjunto')
     .not('programming_finished_at', 'is', null)
     .is('maquinado_completed_at', null)
@@ -266,7 +266,7 @@ export async function fetchProjectMaquinadoQueue(projectId: string): Promise<Bod
     .from('bodega_project_pieces')
     .select(sel)
     .eq('project_id', projectId)
-    .in('programmer_bucket', ['cnc', 'torno'])
+    .in('programmer_bucket', ['cnc'])
     .eq('programming_exit_kind', 'archivo_adjunto')
     .not('programming_finished_at', 'is', null)
     .is('maquinado_completed_at', null)
@@ -337,6 +337,9 @@ export function pieceFinishedPerfilado(p: BodegaProjectPieceRow): boolean {
 
 export function pieceEligibleForDetallado(p: BodegaProjectPieceRow): boolean {
   if (p.detallado_completed_at != null) return false
+  if (p.programmer_bucket === 'accesorios' || p.programmer_bucket === 'torno' || p.programmer_bucket === 'perfilado') {
+    return false
+  }
 
   if (pieceAwaitingPostPerfiladoProgramming(p)) return false
 
@@ -357,12 +360,15 @@ export function pieceEligibleForDetallado(p: BodegaProjectPieceRow): boolean {
 
 export function pieceEligibleForArmado(p: BodegaProjectPieceRow): boolean {
   if (p.armado_completed_at != null) return false
+  if (p.programmer_bucket === 'accesorios' || p.programmer_bucket === 'torno' || p.programmer_bucket === 'perfilado') {
+    return false
+  }
 
   const maquinadoToArmado =
     p.maquinado_completed_at != null &&
     (p.post_maquinado_route === 'armado' || p.post_maquinado_route == null) &&
     p.detallado_completed_at == null &&
-    (p.programmer_bucket === 'cnc' || p.programmer_bucket === 'torno') &&
+    (p.programmer_bucket === 'cnc') &&
     p.programming_exit_kind === 'archivo_adjunto'
 
   const afterDetallado =
@@ -429,7 +435,7 @@ export async function updateProgrammingFinish(args: {
 }
 
 export const BODEGA_PIECE_DESIGN_DRAWING_MIGRATION =
-  'supabase/patch_bodega_piece_design_drawing.sql'
+  'supabase/patch_bodega_planos_pdf_completo.sql'
 
 export async function updatePieceDesignDrawing(args: {
   pieceId: string
@@ -446,9 +452,15 @@ export async function updatePieceDesignDrawing(args: {
     })
     .eq('id', args.pieceId)
   if (error) {
-    if (/design_drawing_/i.test([error.message, error.details].join(' '))) {
+    const msg = [error.message, error.details, error.code, String(error)].join(' ')
+    if (/design_drawing_/i.test(msg)) {
       throw new Error(
         `Faltan columnas de plano por pieza. Ejecuta ${BODEGA_PIECE_DESIGN_DRAWING_MIGRATION} en Supabase.`,
+      )
+    }
+    if (/403|permission|row-level|rls|policy|JWT/i.test(msg) || error.code === '42501') {
+      throw new Error(
+        'Sin permiso para guardar el plano (403). Ejecuta supabase/patch_bodega_planos_pdf_completo.sql en Supabase SQL Editor y recarga.',
       )
     }
     throw error
@@ -1054,13 +1066,35 @@ export async function insertProjectPiece(payload: {
   const useAssemblyCol =
     payload.assemblyXtPath != null && (await bodegaPiecesSupportsAssemblyXtPath())
 
-  if (useAssemblyCol) {
-    const { data, error } = await sb
-      .from('bodega_project_pieces')
-      .insert({ ...baseRow, assembly_xt_path: payload.assemblyXtPath })
-      .select('id')
-      .single()
+  async function insertReturningId(row: Record<string, unknown>): Promise<string> {
+    const { data, error } = await sb.from('bodega_project_pieces').insert(row).select('id').single()
     if (!error) return String((data as { id: string }).id)
+
+    const msg = [error.message, error.details, error.code, String(error)].join(' ')
+    const looksForbidden = /403|permission|row-level|rls|policy|JWT/i.test(msg) || error.code === '42501'
+
+    // Reintento: insert sin RETURNING y luego localizar la fila
+    if (looksForbidden || /PGRST|single/i.test(msg)) {
+      const { error: insertOnlyErr } = await sb.from('bodega_project_pieces').insert(row)
+      if (insertOnlyErr && !/duplicate|unique/i.test([insertOnlyErr.message, insertOnlyErr.details].join(' '))) {
+        const bucketErr = programmerBucketConstraintError(insertOnlyErr)
+        if (bucketErr) throw bucketErr
+        const hint = pieceInsertMissingColumnMessage(insertOnlyErr)
+        if (hint) throw new Error(hint)
+        throw insertOnlyErr
+      }
+      const existing = await fetchProjectPieces(payload.projectId)
+      const found = existing.find(
+        (p) =>
+          (payload.sourcePath && p.source_path === payload.sourcePath) ||
+          (!payload.sourcePath && p.label === payload.label && p.programmer_bucket === (payload.programmerBucket ?? null)),
+      )
+      if (found) return found.id
+      throw new Error(
+        'No se pudo leer la pieza tras crearla (403). Ejecuta supabase/patch_bodega_planos_pdf_completo.sql en Supabase SQL Editor.',
+      )
+    }
+
     const bucketErr = programmerBucketConstraintError(error)
     if (bucketErr) throw bucketErr
     const hint = pieceInsertMissingColumnMessage(error)
@@ -1068,15 +1102,11 @@ export async function insertProjectPiece(payload: {
     throw error
   }
 
-  const { data, error } = await sb.from('bodega_project_pieces').insert(baseRow).select('id').single()
-  if (error) {
-    const bucketErr = programmerBucketConstraintError(error)
-    if (bucketErr) throw bucketErr
-    const hint = pieceInsertMissingColumnMessage(error)
-    if (hint) throw new Error(hint)
-    throw error
+  if (useAssemblyCol) {
+    return insertReturningId({ ...baseRow, assembly_xt_path: payload.assemblyXtPath })
   }
-  return String((data as { id: string }).id)
+
+  return insertReturningId(baseRow)
 }
 
 export async function updatePieceProgrammerBucket(args: {
@@ -1127,11 +1157,19 @@ export async function updatePieceFinishSpecsBatch(
 export async function updateProgrammingRoutesConfirmed(projectId: string): Promise<void> {
   const sb = getSupabase()
   const { error } = await sb.rpc('bodega_confirm_programming_routes', { p_project_id: projectId })
-  if (error) throw error
+  if (error) {
+    const msg = [error.message, error.details, error.hint].filter(Boolean).join(' — ')
+    if (/Sin permiso|permission|diseñadora|disenadora/i.test(msg)) {
+      throw new Error(
+        'Sin permiso en la base para confirmar destinos. Ejecuta supabase/patch_bodega_confirm_programming_routes.sql en Supabase SQL Editor.',
+      )
+    }
+    throw new Error(msg || 'No se confirmó el destino')
+  }
   const meta = await fetchProjectPieceFlowMeta(projectId)
   if (!meta?.programming_routes_confirmed_at) {
     throw new Error(
-      'No se guardó la confirmación. Aplica en Supabase la migración bodega_confirm_programming_routes.',
+      'No se guardó la confirmación. Ejecuta supabase/patch_bodega_confirm_programming_routes.sql en Supabase.',
     )
   }
 }

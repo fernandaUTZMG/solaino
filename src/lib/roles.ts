@@ -273,9 +273,9 @@ export function canSupervisorFinalizeBodegaProject(role: AppRole): boolean {
   return role === 'admin' || role === 'encargado'
 }
 
-/** Registrar % de avance manual (sin ZIP) desde diseño, programación o supervisor. */
-export function canSetManualBodegaProjectAvance(role: AppRole): boolean {
-  return role === 'admin' || role === 'encargado' || role === 'disenadora' || role === 'programadora_maquinaria'
+/** Registrar % de avance manual. Desactivado: el % ya no se edita ni se muestra en entregas. */
+export function canSetManualBodegaProjectAvance(_role: AppRole): boolean {
+  return false
 }
 
 /** Guardar comentario en el historial del proyecto (nota), sin cambiar avance. */

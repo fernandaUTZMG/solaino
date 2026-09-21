@@ -70,20 +70,32 @@ export function orphanPerfiladoPdfPaths(paths: string[]): string[] {
   return paths.filter((p) => isPerfiladoPdfZipPath(p) && !paired.has(p))
 }
 
+function compactPairStem(s: string): string {
+  return s.toLowerCase().replace(/[\s_\-().]+/g, '').trim()
+}
+
 export function findMatchingPdfPathForPart(partPath: string, paths: string[]): string | null {
   const partKey = designPairingKey(partPath)
   const partStem = zipPathStem(partPath)
+  const compactPart = compactPairStem(partStem)
   const { scopeKey: partKit } = parseVersionScopedDesignPath(partPath)
   let fallback: string | null = null
+  let suffixMatch: string | null = null
   for (const pdf of paths) {
     if (!isPerfiladoPdfZipPath(pdf)) continue
     if (designPairingKey(pdf) === partKey) return pdf
-    if (zipPathStem(pdf) !== partStem) continue
     const { scopeKey: pdfKit } = parseVersionScopedDesignPath(pdf)
     if (partKit && pdfKit && partKit !== pdfKit) continue
+    const pdfStem = zipPathStem(pdf)
+    const compactPdf = compactPairStem(pdfStem)
+    if (!suffixMatch && compactPart && (compactPdf === compactPart + 't' || compactPdf === compactPart + 'p')) {
+      suffixMatch = pdf
+      continue
+    }
+    if (pdfStem !== partStem) continue
     if (!fallback) fallback = pdf
   }
-  return fallback
+  return suffixMatch ?? fallback
 }
 
 /** Pieza cuyo `source_path` es un PDF emparejado con una pieza SW (no debe listarse aparte). */

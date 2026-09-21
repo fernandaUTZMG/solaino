@@ -5,7 +5,7 @@ import type { BodegaProjectPieceWithProject } from '../../lib/bodegaPiecesRepo'
 import { fetchPiecesQueueMaquinado } from '../../lib/bodegaPiecesRepo'
 import { BodegaOperatorMaquinadoWorkspace } from './BodegaOperatorMaquinadoWorkspace.tsx'
 
-/** Único lugar para registrar maquinado CNC/Torno (cola de todas las piezas). */
+/** Cola de maquinado CNC (piezas programadas sin perfilado). */
 export function BodegaMaquinadoPage(props: { role: AppRole }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,20 +39,17 @@ export function BodegaMaquinadoPage(props: { role: AppRole }) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50/90 to-white p-5 shadow-sm sm:p-6">
-        <h1 className="text-xl font-bold text-amber-950">Maquinado</h1>
-        <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-amber-950/85">
-          Trabajo en <strong>máquina CNC o Torno</strong> por pieza: inicio de tiempo, fin y envío a{' '}
-          <strong>Armado</strong> o <strong>Detallado</strong>. La programación del archivo se hace en{' '}
-          <strong>Bodega → proyecto → Programación</strong>; aquí solo se maquina.
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-900/[0.03] sm:p-6">
+        <h1 className="text-xl font-bold text-section-navy">Maquinado CNC</h1>
+        <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-slate-600">
+          Solo piezas <strong>CNC</strong> con archivo de programación (cerradas sin perfilado).{' '}
+          <strong>Inicio</strong> / <strong>Fin</strong> por pieza, luego Armado o Detallado.
         </p>
-        <ol className="mt-4 list-decimal space-y-1 pl-5 text-[13px] text-amber-950/80">
+        <ol className="mt-4 list-decimal space-y-1 pl-5 text-[13px] text-slate-600">
           <li>
-            En Bodega → Programación: CNC/Torno terminan con archivo (sin perfilado). Piezas en columna Perfilado van a{' '}
-            <strong>Taller → Perfilado</strong>, no a esta cola.
+            En Programación: termina CNC con archivo (sin perfilado). Perfilado va a Taller, no a esta cola.
           </li>
-          <li>Aquí: elige la pieza → Inicio → al terminar elige Armado o Detallado.</li>
-          <li>Perfilado / Armado / Detallado: menú <strong>Taller</strong>.</li>
+          <li>Aquí: elige la pieza → Inicio → Fin → Armado o Detallado.</li>
         </ol>
       </section>
 

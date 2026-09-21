@@ -30,6 +30,8 @@ type Props = {
   designContratiempoNotes: string | null
   onReloadMeta: () => Promise<void>
   onSaved?: () => void
+  hideOrdenClock?: boolean
+  idleClockHint?: string
 }
 
 export function BodegaProjectClockPanel(props: Props) {
@@ -81,7 +83,7 @@ export function BodegaProjectClockPanel(props: Props) {
       ? 'Abre la pestaña Diseño para registrar la corrección.'
       : designEstado === 'Cerrado'
         ? 'Tiempo de diseño cerrado (entrega en revisión o proyecto aprobado).'
-        : 'Se inicia al abrir la pestaña Diseño.'
+        : (props.idleClockHint ?? 'Se inicia al entrar al proyecto.')
 
   async function saveContratiempo() {
     if (props.role !== 'disenadora') return
@@ -117,42 +119,50 @@ export function BodegaProjectClockPanel(props: Props) {
           </button>
         </div>
       ) : null}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <BodegaLiveClock
-          seconds={ordenElapsedSec}
-          active={ordenOpen}
-          label="Orden de compra"
-          hint={props.sinOrdenCompra ? 'Sin OC vinculada' : props.ordenCompraNumero ?? '—'}
-          businessMinutes={minsByLane.get('orden') ?? 0}
-          businessMinutesLabel="Min. hábiles"
-          tone="slate"
-        />
+      <div className={props.hideOrdenClock ? '' : 'grid gap-4 sm:grid-cols-2'}>
+        {props.hideOrdenClock ? null : (
+          <BodegaLiveClock
+            seconds={ordenElapsedSec}
+            active={ordenOpen}
+            label="Orden de compra"
+            hint={props.sinOrdenCompra ? 'Sin OC vinculada' : props.ordenCompraNumero ?? '—'}
+            businessMinutes={minsByLane.get('orden') ?? 0}
+            businessMinutesLabel="Min. hábiles"
+            tone="slate"
+          />
+        )}
         <BodegaLiveClock
           seconds={designRows.length > 0 ? designElapsedSec : 0}
           active={designOpen}
           label="Diseño"
           hint={designHint}
+          idleLabel={props.idleClockHint ?? 'Se inicia al abrir esta pestaña'}
           businessMinutes={designRows.length > 0 ? totalDesignBusinessMinutes(designRounds) : undefined}
           businessMinutesLabel="Total min. hábiles"
-          tone="pink"
+          tone="navy"
         />
       </div>
 
       {designRounds.length > 0 ? (
-        <div className="border-t border-pink-100 bg-pink-50/40 px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-pink-900/80">
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-300 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-100 px-4 py-2.5">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-700">
               Desglose de tiempos de diseño
             </p>
-            <span className="rounded-lg bg-white px-2.5 py-1 text-[12px] font-bold text-pink-950 shadow-sm">
+            <span className="rounded-lg bg-section-navy px-2.5 py-1 text-[12px] font-bold text-white">
               {formatDesignTimeSummary(designRounds)}
             </span>
           </div>
-          <ul className="mt-3 space-y-2">
+          <ul className="space-y-2 p-3">
             {designRounds.map((round, idx) => (
               <li
                 key={`${round.startedAt}-${idx}`}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-pink-200/70 bg-white px-3 py-2"
+                className={[
+                  'flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2',
+                  round.isOpen
+                    ? 'border-sky-300 bg-sky-50'
+                    : 'border-slate-200 bg-slate-50',
+                ].join(' ')}
               >
                 <div>
                   <p className="text-[13px] font-semibold text-slate-900">{round.label}</p>
@@ -167,7 +177,7 @@ export function BodegaProjectClockPanel(props: Props) {
                 <span
                   className={[
                     'font-mono text-[13px] font-bold',
-                    round.isOpen ? 'text-pink-700' : 'text-slate-700',
+                    round.isOpen ? 'text-section-navy' : 'text-slate-700',
                   ].join(' ')}
                 >
                   {formatWorkMinutesShort(round.businessMinutes)}
@@ -175,8 +185,8 @@ export function BodegaProjectClockPanel(props: Props) {
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-[11px] leading-relaxed text-pink-900/75">
-            Estado: <strong>{designEstado}</strong>. Minutos hábiles lun–vie 8:00–17:30. Cada entrega ZIP pausa el
+          <p className="border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] leading-relaxed text-slate-600">
+            Estado: <strong>{designEstado}</strong>. Minutos hábiles lun–vie 8:00–17:30. Cada entrega .x_t pausa el
             reloj; las correcciones abren una nueva ronda.
           </p>
         </div>

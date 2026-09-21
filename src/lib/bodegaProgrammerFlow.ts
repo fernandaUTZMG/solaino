@@ -3,14 +3,16 @@ import { pieceDesignApproved } from './bodegaDesignPieceReview'
 import { pieceAwaitingPostPerfiladoProgramming } from './bodegaPostPerfiladoProgramming'
 import type { BodegaProjectPieceRow } from './bodegaPiecesRepo'
 import type { CncModuleKind } from './machineVersionsRepo'
-import { isPerfiladoPdfZipPath, isSwPartZipPath } from './zipDesignPackage'
+import { isPerfiladoPdfZipPath, isSwPartZipPath, filterSwPartZipPaths } from './zipDesignPackage'
+import { pieceForZipPath } from './bodegaXtAssemblies'
+import { pieceProgrammingWorkflowOpen } from './bodegaPieceProgrammingBatch'
 
 /** Piezas con diseño aprobado (excluye pendientes de corrección). */
 export function programmingEligiblePieces(pieces: BodegaProjectPieceRow[]): BodegaProjectPieceRow[] {
   return pieces.filter((p) => pieceDesignApproved(p))
 }
 
-/** Piezas .PRT/.SLCPRT asignadas a un módulo CNC oficina. */
+/** Piezas .PRT/.SLCPRT asignadas a un módulo CNC oficina (incluye ya terminadas). */
 export function piecesForCncModule(
   pieces: BodegaProjectPieceRow[],
   module: 'programacion' | 'torno',
@@ -19,6 +21,18 @@ export function piecesForCncModule(
   return programmingEligiblePieces(pieces)
     .filter((p) => p.programmer_bucket === bucket)
     .sort((a, b) => a.label.localeCompare(b.label, 'es'))
+}
+
+/**
+ * Piezas que aún deben programarse en el módulo.
+ * Al terminar (archivo + salida a maquinado o perfilado) salen de esta lista.
+ * Conserva 2ª sesión post-perfilado.
+ */
+export function piecesPendingInCncModule(
+  pieces: BodegaProjectPieceRow[],
+  module: 'programacion' | 'torno',
+): BodegaProjectPieceRow[] {
+  return piecesForCncModule(pieces, module).filter((p) => pieceProgrammingWorkflowOpen(p))
 }
 
 export function piecesForPerfiladoBucket(pieces: BodegaProjectPieceRow[]): BodegaProjectPieceRow[] {
@@ -32,6 +46,15 @@ export function piecesForAccesoriosBucket(pieces: BodegaProjectPieceRow[]): Bode
   return programmingEligiblePieces(pieces)
     .filter((p) => p.programmer_bucket === 'accesorios')
     .sort((a, b) => a.label.localeCompare(b.label, 'es'))
+}
+
+/** Piezas que no llevan tiempo de oficina (como accesorios): torno, perfilado y accesorios. */
+export function pieceSkipsProgrammingTime(p: Pick<BodegaProjectPieceRow, 'programmer_bucket'>): boolean {
+  return (
+    p.programmer_bucket === 'accesorios' ||
+    p.programmer_bucket === 'torno' ||
+    p.programmer_bucket === 'perfilado'
+  )
 }
 
 export function pieceAssignedToAccesorios(p: BodegaProjectPieceRow): boolean {
@@ -57,8 +80,20 @@ export function pieceSkipsProgrammingGoesToMaquinado(p: BodegaProjectPieceRow): 
 /** Todas las piezas de producción tienen destino CNC, Torno, Perfilado o Accesorios. */
 export function isSwPartsAssignmentComplete(
   pieces: BodegaProjectPieceRow[],
-  _designZipPaths?: string[],
+  designZipPaths?: string[],
 ): boolean {
+  const zipParts = designZipPaths ? filterSwPartZipPaths(designZipPaths) : []
+  if (zipParts.length > 0) {
+    return zipParts.every((path) => {
+      const piece = pieceForZipPath(pieces, path)
+      return (
+        piece?.programmer_bucket === 'cnc' ||
+        piece?.programmer_bucket === 'torno' ||
+        piece?.programmer_bucket === 'perfilado' ||
+        piece?.programmer_bucket === 'accesorios'
+      )
+    })
+  }
   const eligible = programmingEligiblePieces(pieces).filter(
     (p) => p.source_path && isSwPartZipPath(p.source_path),
   )
@@ -76,8 +111,7 @@ export function programmerCncModulesWithPieces(
   pieces: BodegaProjectPieceRow[],
 ): Array<'programacion' | 'torno'> {
   const out: Array<'programacion' | 'torno'> = []
-  if (piecesForCncModule(pieces, 'programacion').length > 0) out.push('programacion')
-  if (piecesForCncModule(pieces, 'torno').length > 0) out.push('torno')
+  if (piecesPendingInCncModule(pieces, 'programacion').length > 0) out.push('programacion')
   return out
 }
 
@@ -92,10 +126,8 @@ export function workIntervalLaneForCncModule(module: CncModuleKind): 'cnc_progra
 }
 
 export function isMachiningPiece(p: BodegaProjectPieceRow): boolean {
-  if (pieceAssignedToPerfiladoColumn(p) || pieceAssignedToAccesorios(p)) return false
-  return Boolean(
-    p.source_path && !isPerfiladoPdfZipPath(p.source_path) && (p.programmer_bucket === 'cnc' || p.programmer_bucket === 'torno'),
-  )
+  if (pieceSkipsProgrammingTime(p)) return false
+  return Boolean(p.source_path && !isPerfiladoPdfZipPath(p.source_path) && p.programmer_bucket === 'cnc')
 }
 
 /** Motivo por el que no se puede cambiar CNC ↔ Torno (null = sí se puede). */

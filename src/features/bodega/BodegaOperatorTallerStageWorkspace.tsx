@@ -26,8 +26,6 @@ import { BodegaPieceLaneBatchControls } from './BodegaPieceLaneBatchControls.tsx
 import { filterPiecesByQueueSearch } from '../../lib/bodegaPieceQueueSearch'
 import { useBodegaPieceQueueBulk, withDeliveryScrollRestore } from './useBodegaPieceQueueBulk.ts'
 
-type OriginFilter = 'all' | 'cnc' | 'torno' | 'perfilado'
-
 type Props = {
   stage: TallerStageKind
   rows: BodegaProjectPieceWithProject[]
@@ -42,22 +40,22 @@ const STAGE_LANE: Record<TallerStageKind, BodegaPieceLane> = {
 
 const EMPTY_HELP: Record<TallerStageKind, string> = {
   detallado:
-    'Entran piezas con perfilado terminado, maquinado enviado a detallado, o que ya cerraron armado (CNC→armado→detallado).',
+    'Entran piezas con perfilado terminado, maquinado CNC enviado a detallado, o que ya cerraron armado (CNC→armado→detallado).',
   armado:
-    'Entran piezas con detallado terminado (tras perfilado o maquinado→detallado), o CNC/Torno con maquinado enviado a armado.',
+    'Entran piezas con detallado terminado, o CNC con maquinado enviado a armado.',
 }
 
 const FLOW_STEPS: Record<TallerStageKind, string[]> = {
   detallado: [
     'Tras terminar perfilado la pieza aparece aquí.',
-    'CNC/Torno con perfilado: programación → perfilado → Detallado → Armado.',
-    'Pieza solo PDF perfilado: perfilado → Detallado → Armado.',
-    'Maquinado con «Terminar → Detallado» también entra aquí.',
+    'CNC con perfilado: programación → perfilado → Detallado → Armado.',
+    'Pieza solo PDF (perfilado): perfilado → Detallado → Armado.',
+    'Maquinado CNC con «Fin → Detallado» también entra aquí.',
     'Inicio al empezar y Fin de detallado al cerrar.',
   ],
   armado: [
-    'Tras Fin de detallado (perfilado o maquinado→detallado) la pieza aparece aquí.',
-    'CNC/Torno sin perfilado: maquinado → Armado → Detallado (flujo alterno).',
+    'Tras Fin de detallado la pieza aparece aquí.',
+    'CNC sin perfilado: maquinado → Armado → Detallado (flujo alterno).',
     'Elige pieza, Inicio, y al terminar Fin de armado.',
   ],
 }
@@ -68,7 +66,6 @@ export function BodegaOperatorTallerStageWorkspace(props: Props) {
 
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [originFilter, setOriginFilter] = useState<OriginFilter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [intervalsByPiece, setIntervalsByPiece] = useState<Map<string, BodegaPieceIntervalRow[]>>(() => new Map())
   const [pdfLabel, setPdfLabel] = useState<string | null>(null)
@@ -77,17 +74,13 @@ export function BodegaOperatorTallerStageWorkspace(props: Props) {
   const [pdfError, setPdfError] = useState<string | null>(null)
 
   const filtered = useMemo(() => {
-    const list = [...props.rows].sort((a, b) => {
+    return [...props.rows].sort((a, b) => {
       const fa = a.bodega_projects?.folio ?? ''
       const fb = b.bodega_projects?.folio ?? ''
       if (fa !== fb) return fa.localeCompare(fb, 'es')
       return a.label.localeCompare(b.label, 'es')
     })
-    if (originFilter === 'all') return list
-    if (originFilter === 'perfilado') return list.filter((p) => p.programmer_bucket === 'perfilado')
-    const bucket = originFilter === 'cnc' ? 'cnc' : 'torno'
-    return list.filter((p) => p.programmer_bucket === bucket)
-  }, [props.rows, originFilter])
+  }, [props.rows])
 
   const {
     pieceFilter,
@@ -100,10 +93,6 @@ export function BodegaOperatorTallerStageWorkspace(props: Props) {
     selectAllVisiblePieces,
     clearBulkSelection,
   } = useBodegaPieceQueueBulk(filtered, filterPiecesByQueueSearch)
-
-  useEffect(() => {
-    setPieceFilter('')
-  }, [originFilter, setPieceFilter])
 
   useEffect(() => {
     let cancelled = false
@@ -227,9 +216,6 @@ export function BodegaOperatorTallerStageWorkspace(props: Props) {
     clearBulkSelection()
   }
 
-  const cncCount = props.rows.filter((p) => p.programmer_bucket === 'cnc').length
-  const tornoCount = props.rows.filter((p) => p.programmer_bucket === 'torno').length
-  const perfiladoCount = props.rows.filter((p) => p.programmer_bucket === 'perfilado').length
   const enCursoCount = props.rows.filter((p) => {
     const iv = intervalsByPiece.get(p.id) ?? []
     return pieceHasOpenLaneInterval(iv, p.id, lane)
@@ -242,18 +228,14 @@ export function BodegaOperatorTallerStageWorkspace(props: Props) {
         <p className={ui.headerKicker}>Taller — {props.stage === 'armado' ? 'Armado' : 'Detallado'}</p>
         <h3 className={ui.headerTitle}>{tallerStageTitle(props.stage)}</h3>
         <p className={ui.headerBody}>
-          Misma lógica para todas las piezas: <strong className="text-white">CNC</strong>,{' '}
-          <strong className="text-white">Torno</strong> y <strong className="text-white">Perfilado</strong>. Elige una
-          pieza, <strong className="text-white">Inicio</strong> y al terminar{' '}
+          Elige una pieza, pulsa <strong className="text-white">Inicio</strong> y al terminar{' '}
           <strong className="text-white">{props.stage === 'armado' ? 'Fin de armado' : 'Fin de detallado'}</strong>.
+          No hay máquina de torno ni de perfilado en esta etapa.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <span className={ui.statChip}>{props.rows.length} en cola</span>
           <span className={ui.statChipActive}>{enCursoCount} en curso</span>
           <span className={ui.statChipMuted}>{pendienteCount} pendientes</span>
-          <span className={ui.statChipMuted}>
-            CNC {cncCount} · Torno {tornoCount} · Perfilado {perfiladoCount}
-          </span>
         </div>
       </header>
 
@@ -270,32 +252,6 @@ export function BodegaOperatorTallerStageWorkspace(props: Props) {
         {err ? (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-900">{err}</div>
         ) : null}
-
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide opacity-80">Filtrar por origen</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {(
-              [
-                ['all', 'Todas', props.rows.length],
-                ['cnc', 'CNC', cncCount],
-                ['torno', 'Torno', tornoCount],
-                ['perfilado', 'Perfilado', perfiladoCount],
-              ] as const
-            ).map(([id, label, count]) => (
-              <button
-                key={id}
-                type="button"
-                className={[
-                  'rounded-xl px-4 py-2 text-[13px] font-semibold transition',
-                  originFilter === id ? ui.filterActive : ui.filterIdle,
-                ].join(' ')}
-                onClick={() => setOriginFilter(id)}
-              >
-                {label} ({count})
-              </button>
-            ))}
-          </div>
-        </div>
 
         {props.loading ? (
           <div className="rounded-2xl border bg-white px-6 py-14 text-center text-[14px] text-slate-600">

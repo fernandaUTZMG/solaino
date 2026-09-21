@@ -13,7 +13,10 @@ export function designZipImportFolderKey(path: string): string {
 function topFolderDisplayName(path: string): string {
   const { zipPath } = parseVersionScopedDesignPath(path.trim().replaceAll('\\', '/'))
   const segments = zipPath.split('/').filter(Boolean)
-  if (segments.length <= 1) return 'Raíz del ZIP'
+  if (segments.length <= 1) {
+    if (!/\.(prt|slcprt|sldprt)$/i.test(zipPath)) return 'Piezas del ensamble'
+    return 'Raíz del ZIP'
+  }
   return segments[0]!
 }
 

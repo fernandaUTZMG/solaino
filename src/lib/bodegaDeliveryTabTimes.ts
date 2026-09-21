@@ -56,11 +56,14 @@ export function deliveryTabHasOpenInterval(
       return openWork(['diseno'])
     case 'cnc':
       return (
-        openWork(['cnc_programacion', 'cnc_torno', 'cnc_perfilado', 'maquina_programacion', 'maquina_torno', 'maquina_perfilado']) ||
+        openWork(['cnc_programacion', 'cnc_torno', 'cnc_perfilado']) ||
         openPiece(['programacion_cnc', 'programacion_torno'])
       )
     case 'maquinado':
-      return openPiece(['maquinado'])
+      return (
+        openPiece(['maquinado']) ||
+        openWork(['maquina_programacion', 'maquina_torno', 'maquina_perfilado'])
+      )
     case 'taller':
       return openPiece(['perfilado_operador', 'detallado', 'armado']) || openWork(['armado'])
     case 'fotos':

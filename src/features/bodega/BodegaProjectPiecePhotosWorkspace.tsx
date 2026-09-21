@@ -5,6 +5,7 @@ import {
   canSupervisorFinalizeWithPiecePhotos,
   computeProjectPieceClosureProgress,
   pieceEligibleForProjectPhotos,
+  pieceSkipsManufacturingForPhotos,
   photosForPiece,
 } from '../../lib/bodegaPiecePhotosFlow'
 import { filterPieceRowsBySearch } from '../../lib/bodegaPieceQueueSearch'
@@ -113,6 +114,7 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
 
   const selected = eligible.find((p) => p.id === selectedId) ?? null
   const selectedPhotos = selected ? photosForPiece(props.photos, selected.id) : []
+  const pendingPipeline = progress.totalPieces - progress.detalladoDone
 
   async function runBatchPhotoUpload(files: File[]) {
     const ids = bulkPieces.map((p) => p.id)
@@ -135,17 +137,21 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
   return (
     <section className={fotosUi.section}>
       <header className={fotosUi.header}>
-        <p className={fotosUi.headerKicker}>Paso 10 — Cierre del proyecto</p>
+        <p className={fotosUi.headerKicker}>Cierre del proyecto</p>
         <h3 className={fotosUi.headerTitle}>Fotos por pieza</h3>
         <p className={fotosUi.headerBody}>
-          Cada pieza con <strong className="text-white">detallado terminado</strong> debe tener al menos una foto.
-          El <strong className="text-white">supervisor</strong> finaliza el proyecto cuando todas las piezas tengan
-          evidencia.
+          Cada pieza lista debe tener al menos una foto. Torno, perfilado y accesorios aparecen al dirigirse en
+          diseño (sin tiempo). CNC entra cuando termina <strong className="text-white">detallado</strong>. El
+          supervisor finaliza cuando todas tengan evidencia.
         </p>
-        <p className="mt-3 text-[13px] font-semibold text-emerald-100">
-          Detallado: {progress.detalladoDone} / {progress.totalPieces} piezas · Fotos: {progress.withPhoto} /{' '}
-          {progress.totalPieces}
-        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="rounded-lg bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white">
+            Listas {progress.detalladoDone} / {progress.totalPieces}
+          </span>
+          <span className="rounded-lg bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white">
+            Con foto {progress.withPhoto} / {progress.totalPieces}
+          </span>
+        </div>
       </header>
 
       <div className="space-y-4 px-4 py-5 sm:px-5">
@@ -156,49 +162,52 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
           >
             <p className="font-bold">Falta migración en Supabase</p>
             <p className="mt-1">
-              La tabla <code className="rounded bg-amber-100 px-1">project_piece_photos</code> no tiene la columna{' '}
-              <code className="rounded bg-amber-100 px-1">piece_id</code>. Ejecuta en el SQL Editor el archivo{' '}
+              Ejecuta en el SQL Editor{' '}
               <code className="rounded bg-amber-100 px-1">{BODEGA_PIECE_PHOTOS_PIECE_ID_PATCH}</code> y recarga el
-              esquema API (Settings → API → Reload schema).
+              esquema API.
             </p>
           </div>
         ) : null}
 
         <div className={fotosUi.flowCard}>
           <p className={fotosUi.flowTitle}>Flujo</p>
-          <ol className={`${fotosUi.flowText} mt-2 list-decimal space-y-1 pl-5`}>
-            <li>Termina detallado de cada pieza en <strong>Taller → Detallado</strong>.</li>
-            <li>Elige una o varias piezas (buscador y casillas) y sube las imágenes.</li>
-            <li>Piezas iguales: mismas fotos en lote a todas las seleccionadas.</li>
-            <li>Repite hasta que todas las piezas tengan foto.</li>
-            <li>El supervisor pulsa <strong>Finalizar proyecto</strong>.</li>
+          <ol className={`${fotosUi.flowText} mt-2 list-decimal space-y-1.5 pl-5`}>
+            <li>
+              <strong>Torno / perfilado / accesorios</strong> (diseño): entran aquí al asignarlas — sube foto y quedan
+              listas.
+            </li>
+            <li>
+              <strong>CNC</strong>: primero maquinado y taller; al terminar <strong>Detallado</strong> aparecen aquí.
+            </li>
+            <li>Elige una o varias piezas y sube las imágenes (lote si son iguales).</li>
+            <li>El supervisor pulsa <strong>Finalizar proyecto</strong> cuando todas tengan foto.</li>
           </ol>
         </div>
 
         {props.projectFinalized ? (
-          <div className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-3 text-[13px] text-emerald-950">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-950">
             Proyecto finalizado
             {props.projectFinalizedAt ? ` · ${props.projectFinalizedAt.slice(0, 16)}` : ''}.
           </div>
         ) : null}
 
         {props.loading ? (
-          <div className="rounded-2xl border bg-white px-6 py-14 text-center text-[14px] text-slate-600">
+          <div className="rounded-2xl border border-slate-200 bg-white px-6 py-14 text-center text-[14px] text-slate-600">
             Cargando…
           </div>
         ) : props.pieces.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50/50 px-6 py-14 text-center">
-            <p className="text-[16px] font-bold text-emerald-950">Sin piezas en el proyecto</p>
-            <p className="mx-auto mt-2 max-w-md text-[13px] text-emerald-900/80">
-              Registra las piezas del diseño en la pestaña <strong>Piezas</strong> antes del cierre.
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
+            <p className="text-[16px] font-bold text-slate-900">Sin piezas en el proyecto</p>
+            <p className="mx-auto mt-2 max-w-md text-[13px] text-slate-600">
+              Registra las piezas del diseño antes del cierre.
             </p>
           </div>
         ) : eligible.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 px-6 py-14 text-center">
-            <p className="text-[16px] font-bold text-amber-950">Ninguna pieza con detallado listo</p>
-            <p className="mx-auto mt-2 max-w-md text-[13px] text-amber-900/80">
-              Termina <strong>detallado</strong> de las {progress.totalPieces} pieza(s) en{' '}
-              <strong>Taller → Detallado</strong>. El cierre solo aplica cuando todas estén listas.
+          <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 px-6 py-14 text-center">
+            <p className="text-[16px] font-bold text-amber-950">Ninguna pieza lista para foto</p>
+            <p className="mx-auto mt-2 max-w-md text-[13px] text-amber-900/85">
+              CNC: termina <strong>detallado</strong> en taller. Torno y perfilado: asígnalos en{' '}
+              <strong>Diseño → Destinos</strong>.
             </p>
           </div>
         ) : (
@@ -206,14 +215,12 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
             <section className={fotosUi.listSection}>
               <div className={fotosUi.listHeader}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900/75">
-                    1. Elige pieza(s)
-                  </p>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">1. Elige pieza(s)</p>
                   {props.canUpload && !props.projectFinalized ? (
                     <div className="flex flex-wrap gap-1.5">
                       <button
                         type="button"
-                        className="rounded-lg border border-emerald-400 bg-white px-2 py-1 text-[10px] font-bold text-emerald-900 hover:bg-emerald-50 disabled:opacity-50"
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                         disabled={filteredVisible.length === 0}
                         onClick={selectAllVisiblePieces}
                       >
@@ -234,13 +241,22 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
                     </div>
                   ) : null}
                 </div>
-                <p className="text-[13px] text-emerald-950/80">
+                <p className="text-[13px] text-slate-600">
                   {pieceFilter.trim()
                     ? `${filteredVisible.length} de ${eligible.length}`
                     : eligible.length}{' '}
-                  con detallado listo · {progress.totalPieces - progress.detalladoDone} pendiente(s)
+                  listas para foto
+                  {pendingPipeline > 0 ? (
+                    <span>
+                      {' '}
+                      · {pendingPipeline} CNC pendiente{pendingPipeline === 1 ? '' : 's'} de taller
+                    </span>
+                  ) : null}
                   {bulkSelectedIds.length > 0 ? (
-                    <span className="font-semibold"> · {bulkSelectedIds.length} seleccionada(s)</span>
+                    <span className="font-semibold text-slate-800">
+                      {' '}
+                      · {bulkSelectedIds.length} seleccionada(s)
+                    </span>
                   ) : null}
                 </p>
               </div>
@@ -248,13 +264,13 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
                 type="search"
                 value={pieceFilter}
                 onChange={(e) => setPieceFilter(e.target.value)}
-                placeholder="Buscar pieza (ej. base, nombre)…"
-                className="mx-4 mb-2 w-[calc(100%-2rem)] rounded-xl border border-emerald-200 px-3 py-2 text-[13px] shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200/60 sm:mx-5"
+                placeholder="Buscar pieza…"
+                className="mx-4 mb-2 w-[calc(100%-2rem)] rounded-xl border border-slate-200 px-3 py-2 text-[13px] shadow-sm outline-none focus:border-section-navy/40 focus:ring-2 focus:ring-section-navy/15 sm:mx-5"
                 autoComplete="off"
               />
-              <ul className="max-h-[min(480px,55vh)] divide-y divide-emerald-100 overflow-y-auto">
+              <ul className="max-h-[min(480px,55vh)] divide-y divide-slate-100 overflow-y-auto">
                 {filteredVisible.length === 0 ? (
-                  <li className="px-4 py-6 text-center text-[12px] text-slate-600 sm:px-5">
+                  <li className="px-4 py-6 text-center text-[12px] text-slate-500 sm:px-5">
                     {eligible.length === 0
                       ? 'Sin piezas.'
                       : `Ninguna coincide con «${pieceFilter.trim()}».`}
@@ -264,6 +280,7 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
                   const count = photosForPiece(props.photos, p.id).length
                   const selectedRow = p.id === selectedId
                   const bulkChecked = bulkSelectedIds.includes(p.id)
+                  const skipMfg = pieceSkipsManufacturingForPhotos(p)
                   return (
                     <li key={p.id}>
                       <div
@@ -279,7 +296,7 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
                           >
                             <input
                               type="checkbox"
-                              className="h-4 w-4 rounded border-emerald-500 text-emerald-700"
+                              className="h-4 w-4 rounded border-slate-400 text-section-navy"
                               checked={bulkChecked}
                               onChange={() => toggleBulkPiece(p.id)}
                             />
@@ -293,25 +310,32 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
                           ].join(' ')}
                           onClick={() => setSelectedId(p.id)}
                         >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={[
-                              'rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase',
-                              pieceStageOriginTone(p),
-                            ].join(' ')}
-                          >
-                            {pieceStageOriginLabel(p)}
-                          </span>
-                          <span
-                            className={[
-                              'rounded-full px-2 py-0.5 text-[10px] font-bold',
-                              count > 0 ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-100 text-amber-900',
-                            ].join(' ')}
-                          >
-                            {count > 0 ? `${count} foto${count === 1 ? '' : 's'}` : 'Sin foto'}
-                          </span>
-                        </div>
-                        <span className="truncate text-[14px] font-bold text-slate-900">{p.label}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={[
+                                'rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase',
+                                pieceStageOriginTone(p),
+                              ].join(' ')}
+                            >
+                              {pieceStageOriginLabel(p)}
+                            </span>
+                            {skipMfg ? (
+                              <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">
+                                Sin proceso CNC
+                              </span>
+                            ) : null}
+                            <span
+                              className={[
+                                'rounded-full border px-2 py-0.5 text-[10px] font-bold',
+                                count > 0
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                                  : 'border-amber-200 bg-amber-50 text-amber-900',
+                              ].join(' ')}
+                            >
+                              {count > 0 ? `${count} foto${count === 1 ? '' : 's'}` : 'Sin foto'}
+                            </span>
+                          </div>
+                          <span className="truncate text-[14px] font-bold text-slate-900">{p.label}</span>
                         </button>
                       </div>
                     </li>
@@ -319,7 +343,7 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
                 })}
               </ul>
               {bulkPieces.length > 0 && !showBatchPanel && props.canUpload && !props.projectFinalized ? (
-                <div className="border-t border-emerald-100 px-4 py-3 sm:px-5">
+                <div className="border-t border-slate-100 px-4 py-3 sm:px-5">
                   <PhotosBatchUploadPanel
                     compact
                     pieceCount={bulkPieces.length}
@@ -332,13 +356,13 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
 
             <section className="min-w-0 space-y-4">
               {batchNotice ? (
-                <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-950">
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-800">
                   {batchNotice}
                 </p>
               ) : null}
               {showBatchPanel && props.canUpload && !props.projectFinalized ? (
                 <div className={fotosUi.panel}>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900/70">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                     Varias piezas seleccionadas
                   </p>
                   <p className="mt-1 text-[16px] font-bold text-slate-900">{bulkPieces.length} piezas</p>
@@ -358,59 +382,64 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
               ) : selected ? (
                 <>
                   {bulkPieces.length > 1 ? (
-                    <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] leading-relaxed text-emerald-950">
+                    <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] leading-relaxed text-slate-700">
                       Tienes <strong>{bulkPieces.length} piezas</strong> marcadas — usa el panel de lote para subir las
                       mismas fotos a todas.
                     </p>
                   ) : null}
-                <div className={fotosUi.panel}>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900/70">
-                    2. Fotos de la pieza
-                  </p>
-                  <p className="mt-1 text-[16px] font-bold text-slate-900">{selected.label}</p>
-                  <p className="mt-1 text-[12px] text-slate-600">Origen: {pieceStageOriginLabel(selected)}</p>
+                  <div className={fotosUi.panel}>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      2. Fotos de la pieza
+                    </p>
+                    <p className="mt-1 text-[16px] font-bold text-slate-900">{selected.label}</p>
+                    <p className="mt-1 text-[12px] text-slate-500">
+                      Origen: {pieceStageOriginLabel(selected)}
+                      {pieceSkipsManufacturingForPhotos(selected)
+                        ? ' · sin tiempo de maquinado/taller'
+                        : ''}
+                    </p>
 
-                  {props.canUpload && !props.projectFinalized ? (
-                    <label className={`mt-4 ${fotosUi.uploadZone}`}>
-                      <span className="text-[14px] font-semibold text-emerald-950">
-                        {props.uploadBusy ? 'Subiendo…' : 'Elegir imágenes para esta pieza'}
-                      </span>
-                      <span className="mt-1 text-[12px] text-emerald-900/70">JPG, PNG, WEBP, etc.</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        disabled={props.uploadBusy}
-                        onChange={(e) => {
-                          const batch = e.target.files ? Array.from(e.target.files) : []
-                          e.currentTarget.value = ''
-                          if (batch.length > 0) void props.onUpload(selected.id, batch)
-                        }}
-                      />
-                    </label>
-                  ) : null}
+                    {props.canUpload && !props.projectFinalized ? (
+                      <label className={`mt-4 ${fotosUi.uploadZone}`}>
+                        <span className="text-[14px] font-semibold text-slate-900">
+                          {props.uploadBusy ? 'Subiendo…' : 'Elegir imágenes para esta pieza'}
+                        </span>
+                        <span className="mt-1 text-[12px] text-slate-500">JPG, PNG, WEBP, etc.</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          disabled={props.uploadBusy}
+                          onChange={(e) => {
+                            const batch = e.target.files ? Array.from(e.target.files) : []
+                            e.currentTarget.value = ''
+                            if (batch.length > 0) void props.onUpload(selected.id, batch)
+                          }}
+                        />
+                      </label>
+                    ) : null}
 
-                  {selectedPhotos.length > 0 ? (
-                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {selectedPhotos.map((ph) => (
-                        <PhotoThumb key={ph.id} path={ph.storage_path} name={ph.filename} />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-4 text-[13px] text-slate-500">Esta pieza aún no tiene fotos.</p>
-                  )}
-                </div>
+                    {selectedPhotos.length > 0 ? (
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {selectedPhotos.map((ph) => (
+                          <PhotoThumb key={ph.id} path={ph.storage_path} name={ph.filename} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-4 text-[13px] text-slate-500">Esta pieza aún no tiene fotos.</p>
+                    )}
+                  </div>
                 </>
               ) : null}
 
               {props.canFinalize ? (
                 <div className={fotosUi.finalizeBox}>
-                  <p className="text-[15px] font-bold text-emerald-950">Finalizar proyecto (supervisor)</p>
-                  <p className="mt-2 text-[13px] leading-relaxed text-emerald-950/85">
-                    Requiere las <strong>{progress.totalPieces}</strong> piezas con detallado terminado y al menos una
-                    foto cada una (detallado {progress.detalladoDone}/{progress.totalPieces} · fotos{' '}
-                    {progress.withPhoto}/{progress.totalPieces}).
+                  <p className="text-[15px] font-bold text-section-navy">Finalizar proyecto (supervisor)</p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-slate-600">
+                    Requiere las <strong>{progress.totalPieces}</strong> piezas listas y al menos una foto cada una
+                    (listas {progress.detalladoDone}/{progress.totalPieces} · fotos {progress.withPhoto}/
+                    {progress.totalPieces}).
                   </p>
                   <button
                     type="button"
@@ -418,7 +447,7 @@ export function BodegaProjectPiecePhotosWorkspace(props: Props) {
                     title={
                       !canFinalize
                         ? progress.detalladoDone < progress.totalPieces
-                          ? `Faltan ${progress.totalPieces - progress.detalladoDone} pieza(s) por terminar detallado`
+                          ? `Faltan ${progress.totalPieces - progress.detalladoDone} pieza(s) por completar (CNC en taller)`
                           : `Faltan fotos en ${progress.totalPieces - progress.withPhoto} pieza(s)`
                         : undefined
                     }
@@ -450,15 +479,15 @@ function PhotosBatchUploadPanel(props: {
   return (
     <div
       className={[
-        'rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/50',
+        'rounded-xl border border-dashed border-slate-300 bg-slate-50',
         compact ? 'p-2.5' : 'mt-4 p-4',
       ].join(' ')}
     >
-      <p className={['font-bold uppercase text-emerald-900', compact ? 'text-[10px]' : 'text-[11px]'].join(' ')}>
+      <p className={['font-bold uppercase text-section-navy', compact ? 'text-[10px]' : 'text-[11px]'].join(' ')}>
         Mismas fotos — {props.pieceCount} pieza{props.pieceCount === 1 ? '' : 's'}
       </p>
-      <p className={['mt-1 text-emerald-950/80', compact ? 'text-[10px]' : 'text-[12px]'].join(' ')}>
-        Las imágenes se guardan en cada pieza seleccionada (copia por pieza).
+      <p className={['mt-1 text-slate-600', compact ? 'text-[10px]' : 'text-[12px]'].join(' ')}>
+        Las imágenes se guardan en cada pieza seleccionada.
       </p>
       <label
         className={[
@@ -467,10 +496,10 @@ function PhotosBatchUploadPanel(props: {
           props.uploadBusy ? 'pointer-events-none opacity-60' : '',
         ].join(' ')}
       >
-        <span className="text-[13px] font-semibold text-emerald-950">
+        <span className="text-[13px] font-semibold text-slate-900">
           {props.uploadBusy ? 'Subiendo…' : 'Elegir imágenes para las piezas seleccionadas'}
         </span>
-        <span className="mt-1 text-[11px] text-emerald-900/70">JPG, PNG, WEBP — varias a la vez</span>
+        <span className="mt-1 text-[11px] text-slate-500">JPG, PNG, WEBP — varias a la vez</span>
         <input
           type="file"
           accept="image/*"

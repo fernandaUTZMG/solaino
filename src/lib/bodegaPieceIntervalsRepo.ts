@@ -185,3 +185,21 @@ export function aggregatePieceMinutesByLane(
   }
   return m
 }
+
+/** Minutos de reloj real (no solo horario hábil) por carril de pieza. Útil en maquinado CNC. */
+export function aggregatePieceWallMinutesByLane(
+  rows: BodegaPieceIntervalRow[],
+  nowRef: Date = new Date(),
+): Map<BodegaPieceLane, number> {
+  const m = new Map<BodegaPieceLane, number>()
+  const nowMs = nowRef.getTime()
+  for (const r of rows) {
+    const start = new Date(r.started_at).getTime()
+    const end = r.ended_at ? new Date(r.ended_at).getTime() : nowMs
+    const mins = Math.max(0, (end - start) / 60000)
+    if (mins < 1 / 60) continue
+    const lane = r.lane as BodegaPieceLane
+    m.set(lane, (m.get(lane) ?? 0) + mins)
+  }
+  return m
+}

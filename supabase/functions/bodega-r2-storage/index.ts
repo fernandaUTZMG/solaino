@@ -21,19 +21,22 @@ import {
 import { createBodegaDownloadSignedUrl, getUserRole } from '../_shared/bodegaSignedUrl.ts'
 import {
   isR2Configured,
+  R2ObjectNotFoundError,
   r2MoveObject,
+  r2CopyObject,
   r2PresignPut,
   r2DeleteObject,
   readR2Config,
 } from '../_shared/r2S3.ts'
 
-type Action = 'presign_upload' | 'presign_download' | 'move' | 'delete'
+type Action = 'presign_upload' | 'presign_download' | 'move' | 'copy' | 'delete'
 
 type RequestBody = {
   action?: Action
   bucket?: string
   path?: string
   destinationPath?: string
+  destinationBucket?: string
   contentType?: string
   expiresSec?: number
 }
@@ -43,7 +46,7 @@ function parseLogicalBucket(raw: string | undefined): BodegaLogicalBucket | null
   return null
 }
 
-Deno.serve(async (req) => {
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405)
 
@@ -130,6 +133,28 @@ Deno.serve(async (req) => {
     return jsonResponse({ signedUrl, provider: 'r2', expiresSec, path })
   }
 
+  if (action === 'copy') {
+    const destPath = normalizeObjectKey(body.destinationPath ?? '')
+    if (!destPath) return jsonResponse({ error: 'destinationPath requerido' }, 400)
+    const destBucket = parseLogicalBucket(body.destinationBucket?.trim()) ?? logicalBucket
+    if (!canBodegaStorageReadPath(role, logicalBucket, path)) {
+      return jsonResponse({ error: 'Sin permiso de lectura' }, 403)
+    }
+    if (!canBodegaStorageUpload(role, destBucket, destPath)) {
+      return jsonResponse({ error: 'Sin permiso de subida al histórico' }, 403)
+    }
+    const destKey = r2ObjectKey(destBucket, destPath)
+    try {
+      await r2CopyObject(cfg, objectKey, destKey)
+    } catch (err) {
+      if (err instanceof R2ObjectNotFoundError) {
+        return jsonResponse({ error: err.message, code: 'source_missing', path }, 404)
+      }
+      throw err
+    }
+    return jsonResponse({ ok: true, from: path, to: destPath, destinationBucket: destBucket })
+  }
+
   if (action === 'move') {
     if (!canBodegaStorageMove(role)) return jsonResponse({ error: 'Sin permiso para mover' }, 403)
     const destPath = normalizeObjectKey(body.destinationPath ?? '')
@@ -146,4 +171,15 @@ Deno.serve(async (req) => {
   }
 
   return jsonResponse({ error: 'action no válida' }, 400)
+}
+
+Deno.serve(async (req) => {
+  try {
+    return await handleRequest(req)
+  } catch (err) {
+    /** Sin esto, cualquier fallo de R2 llega al navegador como un 500 sin cuerpo. */
+    const detail = err instanceof Error ? err.message : String(err)
+    console.error('bodega-r2-storage falló:', detail)
+    return jsonResponse({ error: detail || 'Error interno en bodega-r2-storage' }, 500)
+  }
 })

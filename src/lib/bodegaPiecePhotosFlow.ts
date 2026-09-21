@@ -1,8 +1,23 @@
 import type { BodegaProjectPieceRow } from './bodegaPiecesRepo'
 import type { ProjectPiecePhotoRow } from './piecePhotosRepo'
 
-/** Pieza lista para fotos de cierre: detallado terminado en taller. */
+/**
+ * Piezas listas para foto de cierre:
+ * - Torno / perfilado / accesorios: diseño las dirige sin proceso CNC → aparecen al asignarlas.
+ * - CNC: tras terminar detallado en taller.
+ */
+export function pieceSkipsManufacturingForPhotos(
+  p: Pick<BodegaProjectPieceRow, 'programmer_bucket'>,
+): boolean {
+  return (
+    p.programmer_bucket === 'torno' ||
+    p.programmer_bucket === 'perfilado' ||
+    p.programmer_bucket === 'accesorios'
+  )
+}
+
 export function pieceEligibleForProjectPhotos(p: BodegaProjectPieceRow): boolean {
+  if (pieceSkipsManufacturingForPhotos(p)) return true
   return p.detallado_completed_at != null
 }
 
@@ -12,13 +27,14 @@ export function photosForPiece(photos: ProjectPiecePhotoRow[], pieceId: string):
 
 export type ProjectPieceClosureProgress = {
   totalPieces: number
+  /** Piezas ya elegibles para subir foto (antes: solo detallado). */
   detalladoDone: number
   withPhoto: number
   missingDetalladoPieceIds: string[]
   missingPhotoPieceIds: string[]
 }
 
-/** Avance de cierre sobre **todas** las piezas del proyecto (no solo las ya en detallado). */
+/** Avance de cierre sobre **todas** las piezas del proyecto. */
 export function computeProjectPieceClosureProgress(
   pieces: BodegaProjectPieceRow[],
   photos: ProjectPiecePhotoRow[],
@@ -50,7 +66,7 @@ export function allProjectPiecesDetalladoComplete(pieces: BodegaProjectPieceRow[
   return pieces.every(pieceEligibleForProjectPhotos)
 }
 
-/** Programadora: solicitar revisión solo cuando todas las piezas terminaron detallado. */
+/** Programadora: solicitar revisión cuando todas las piezas están listas para foto. */
 export function canProgramadoraSolicitarCierre(pieces: BodegaProjectPieceRow[]): boolean {
   return allProjectPiecesDetalladoComplete(pieces)
 }

@@ -10,9 +10,9 @@ export function pieceStageOriginLabel(p: BodegaProjectPieceRow): string {
 }
 
 export function pieceStageOriginTone(p: BodegaProjectPieceRow): string {
-  if (p.programmer_bucket === 'cnc') return 'bg-violet-100 text-violet-950 border-violet-300'
-  if (p.programmer_bucket === 'torno') return 'bg-purple-100 text-purple-950 border-purple-300'
-  if (p.programmer_bucket === 'perfilado') return 'bg-teal-100 text-teal-950 border-teal-300'
+  if (p.programmer_bucket === 'cnc') return 'bg-sky-100 text-section-navy border-sky-300'
+  if (p.programmer_bucket === 'torno') return 'bg-slate-100 text-slate-800 border-slate-300'
+  if (p.programmer_bucket === 'perfilado') return 'bg-slate-100 text-slate-700 border-slate-300'
   if (p.programmer_bucket === 'accesorios') return 'bg-slate-200 text-slate-900 border-slate-400'
   return 'bg-slate-100 text-slate-800 border-slate-200'
 }

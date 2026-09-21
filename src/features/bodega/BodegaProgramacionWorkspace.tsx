@@ -1,19 +1,26 @@
-import type { ReactNode } from 'react'
+import { useMemo, useRef, type ReactNode } from 'react'
 import type { AppRole } from '../../lib/roles'
 import { canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/roles'
 import type { CncModuleKind } from '../../lib/machineVersionsRepo'
+import {
+  aggregateBusinessMinutesByLane,
+  workLaneElapsedSeconds,
+  type BodegaWorkIntervalRow,
+} from '../../lib/bodegaWorkIntervalsRepo'
 import { BodegaProgramacionGuide } from './BodegaProgramacionGuide.tsx'
 import { BodegaProgramacionTabPanel } from './BodegaProgramacionTabPanel.tsx'
+import { BodegaLiveClock } from './BodegaLiveClock.tsx'
+import { useLiveClockTick } from './useLiveClockTick.ts'
 import { progStepBody, progStepCard, progStepHeader, progStepNumber } from './bodegaProgramacionUi.ts'
 
-function StepBlock(props: { n: number; title: string; subtitle: string; children: ReactNode }) {
+function StepBlock(props: { n?: number; title: string; subtitle: string; children: ReactNode }) {
   return (
     <section className={progStepCard}>
       <div className={progStepHeader}>
-        <span className={progStepNumber}>{props.n}</span>
+        {props.n != null && props.n > 0 ? <span className={progStepNumber}>{props.n}</span> : null}
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-bold text-programacion-950">{props.title}</h3>
-          <p className="mt-0.5 text-[12px] leading-snug text-programacion-900/85">{props.subtitle}</p>
+          <h3 className="text-[15px] font-bold text-section-navy">{props.title}</h3>
+          <p className="mt-0.5 text-[13px] leading-snug text-slate-500">{props.subtitle}</p>
         </div>
       </div>
       <div className={progStepBody}>{props.children}</div>
@@ -36,14 +43,36 @@ type Props = {
   assignmentPanel: ReactNode | null
   programmingPanel: ReactNode | null
   timesPanel?: ReactNode | null
+  workIntervals?: BodegaWorkIntervalRow[]
 }
 
 export function BodegaProgramacionWorkspace(props: Props) {
   const canWork = canUploadBodegaMachine(props.role) || canManageBodegaLikeAdmin(props.role)
   const showModuleTabs = props.routesLocked && canWork && props.cncModuleTabsVisible.length > 0
+  const intervals = props.workIntervals ?? []
+  const programmingDone = Boolean(props.allProgrammingFinished)
+  const clockOpen = intervals.some((r) => r.lane === 'cnc_programacion' && !r.ended_at)
+  // No seguir tickeando ni contando si la programación ya terminó (aunque el intervalo tarde en cerrarse).
+  const clockLive = clockOpen && !programmingDone
+  const clockNow = useLiveClockTick(clockLive)
+  const freezeAtRef = useRef<string | null>(null)
+  if (programmingDone) {
+    if (freezeAtRef.current == null) freezeAtRef.current = new Date().toISOString()
+  } else {
+    freezeAtRef.current = null
+  }
+  const displayIntervals = useMemo(() => {
+    if (!programmingDone || freezeAtRef.current == null) return intervals
+    const ended = freezeAtRef.current
+    return intervals.map((r) =>
+      r.lane === 'cnc_programacion' && !r.ended_at ? { ...r, ended_at: ended } : r,
+    )
+  }, [intervals, programmingDone])
+  const clockSec = workLaneElapsedSeconds(displayIntervals, 'cnc_programacion', clockNow)
+  const clockMins = aggregateBusinessMinutesByLane(displayIntervals, clockNow).get('cnc_programacion') ?? 0
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <BodegaProgramacionGuide
         role={props.role}
         projectStatus={props.projectStatus}
@@ -54,9 +83,35 @@ export function BodegaProgramacionWorkspace(props: Props) {
         allProgrammingFinished={props.allProgrammingFinished}
       />
 
+      <StepBlock
+        title="Tiempo de programación"
+        subtitle={
+          programmingDone
+            ? 'Programación CNC terminada: el reloj se detuvo al cerrar todas las piezas con archivo.'
+            : 'Corre mientras hay piezas CNC pendientes. Al terminar todas con archivo, el reloj se detiene.'
+        }
+      >
+        <BodegaLiveClock
+          seconds={clockSec}
+          active={clockLive}
+          label="Programación"
+          idleLabel={programmingDone ? 'Programación terminada' : 'Se inicia al entrar al proyecto'}
+          hint={
+            programmingDone
+              ? 'Todas las piezas CNC ya tienen archivo. Siguiente: maquinado (con Inicio/Fin) o perfilado (sin tiempo).'
+              : clockOpen
+                ? 'Reloj activo — hay piezas CNC por programar.'
+                : undefined
+          }
+          tone="navy"
+          businessMinutes={clockMins > 0 ? clockMins : undefined}
+          businessMinutesLabel="Min. hábiles"
+        />
+      </StepBlock>
+
       {!props.designReady ? (
-        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/90 px-4 py-4 text-[13px] leading-relaxed text-amber-950">
-          <strong>Falta confirmación de diseño.</strong> El encargado debe confirmar las carpetas en la pestaña{' '}
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-[13px] leading-relaxed text-amber-950 shadow-sm">
+          <strong>Falta confirmación de diseño.</strong> El encargado debe confirmar el ensamble en la pestaña{' '}
           <strong>Diseño</strong> antes de programar aquí.
         </div>
       ) : null}
@@ -64,8 +119,8 @@ export function BodegaProgramacionWorkspace(props: Props) {
       {props.deliveryPanel ? (
         <StepBlock
           n={1}
-          title="Entrega de programación"
-          subtitle="Descarga el diseño confirmado, programa en tu PC y sube el ZIP con las piezas que sí se maquinarán."
+          title="Ensamble .x_t"
+          subtitle="Descarga el archivo de la diseñadora. Cada pieza de la lista se abre en tu programa desde ese ensamble."
         >
           {props.deliveryPanel}
         </StepBlock>
@@ -75,7 +130,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
         <StepBlock
           n={2}
           title="Asignar piezas"
-          subtitle="Arrastra piezas a CNC, Torno, Perfilado o Accesorios."
+          subtitle="Los destinos los confirma la diseñadora. CNC se programa; torno y perfiladora salen sin tiempo."
         >
           {props.assignmentPanel}
         </StepBlock>
@@ -85,15 +140,12 @@ export function BodegaProgramacionWorkspace(props: Props) {
         <StepBlock
           n={3}
           title="Módulo activo"
-          subtitle="CNC y Torno se programan por separado. Perfilado (asignación) va directo a Taller."
+          subtitle="Solo CNC se programa aquí. Perfilado y torno no llevan tiempo de oficina."
         >
-          <p className="text-[12px] leading-relaxed text-programacion-950/90">
-            Elige la línea en la que vas a trabajar. Cada módulo tiene su historial de tiempos.
-          </p>
           <div
             role="tablist"
             aria-label="Módulo de programación"
-            className="mt-3 inline-flex flex-wrap gap-1 rounded-xl bg-white/90 p-1 ring-2 ring-programacion-200/80"
+            className="inline-flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
           >
             {props.cncModuleTabsVisible.map((m) => (
               <button
@@ -102,14 +154,10 @@ export function BodegaProgramacionWorkspace(props: Props) {
                 role="tab"
                 aria-selected={props.cncModuleTab === m}
                 className={[
-                  'min-h-[44px] rounded-lg px-4 py-2.5 text-[13px] font-semibold transition outline-none focus-visible:ring-2 focus-visible:ring-programacion-500/50',
+                  'min-h-[44px] rounded-lg px-4 py-2.5 text-[13px] font-semibold transition outline-none focus-visible:ring-2 focus-visible:ring-section-navy/40',
                   props.cncModuleTab === m
-                    ? m === 'torno'
-                      ? 'bg-programacion-700 text-white shadow-sm'
-                      : m === 'perfilado'
-                        ? 'bg-programacion-800 text-white shadow-sm'
-                        : 'bg-programacion-600 text-white shadow-sm'
-                    : 'text-programacion-950/90 hover:bg-programacion-100/80',
+                    ? 'bg-section-navy text-white shadow-sm'
+                    : 'text-slate-700 hover:bg-slate-100',
                 ].join(' ')}
                 onClick={() => props.onCncModuleTabChange(m)}
               >
@@ -117,12 +165,6 @@ export function BodegaProgramacionWorkspace(props: Props) {
               </button>
             ))}
           </div>
-          {props.routesLocked ? (
-            <p className="mt-3 rounded-xl border border-programacion-200 bg-programacion-50/80 px-3 py-2.5 text-[12px] text-programacion-950">
-              <strong>CNC / Torno:</strong> programa cada pieza con plano PDF, archivo y cierre.{' '}
-              <strong>Perfilado (asignación):</strong> van a <strong>Taller → Perfilado</strong>.
-            </p>
-          ) : null}
         </StepBlock>
       ) : null}
 
@@ -130,33 +172,30 @@ export function BodegaProgramacionWorkspace(props: Props) {
         <StepBlock
           n={4}
           title="Programar piezas"
-          subtitle="Inicia el tiempo, revisa el plano, sube el archivo y termina eligiendo perfilado o maquinado."
+          subtitle="Inicia el tiempo de oficina CNC, sube el archivo y cierra. Contratiempos van en comentarios."
         >
           {props.programmingPanel}
         </StepBlock>
       ) : props.routesLocked && props.cncModuleTab === 'perfilado' ? (
-        <div className="rounded-2xl border-2 border-programacion-300 bg-programacion-100/70 px-4 py-4 text-[13px] text-programacion-950">
-          Las piezas en <strong>Perfilado</strong> no requieren archivo CNC/Torno. Siguen en{' '}
-          <strong>Taller → Perfilado</strong> cuando el flujo lo indique.
+        <div className="rounded-2xl border border-sky-300 bg-sky-50 px-4 py-4 text-[13px] text-sky-950 shadow-sm">
+          Las piezas en <strong>Perfilado</strong> y <strong>Torno</strong> no se programan ni se cronometran. Las
+          dirigió diseño y salen como accesorios.
         </div>
       ) : null}
 
       <BodegaProgramacionTabPanel routesLocked={props.routesLocked} activeModule={props.cncModuleTab} />
 
       {props.timesPanel ? (
-        <section className="overflow-hidden rounded-2xl border-2 border-programacion-200/90 bg-programacion-50/40 px-4 py-4 sm:px-5">
-          <h3 className="text-[13px] font-bold text-programacion-950">Tiempos — oficina CNC</h3>
-          <p className="mt-0.5 text-[12px] text-programacion-900/85">
-            Minutos acumulados por línea (se registran al programar piezas).
-          </p>
-          <div className="mt-3">{props.timesPanel}</div>
+        <section className={progStepCard}>
+          <div className={progStepHeader}>
+            <div>
+              <h3 className="text-[15px] font-bold text-section-navy">Tiempos por línea</h3>
+              <p className="mt-0.5 text-[13px] text-slate-500">Minutos hábiles acumulados en programación.</p>
+            </div>
+          </div>
+          <div className={progStepBody}>{props.timesPanel}</div>
         </section>
       ) : null}
-
-      <p className="rounded-xl border-2 border-programacion-300/90 bg-programacion-100/70 px-4 py-3 text-[12px] leading-relaxed text-programacion-950">
-        <strong className="text-programacion-900">Seguimiento:</strong> más abajo en esta pantalla están las notas de avance y
-        el historial del proyecto (asignaciones, archivos, comentarios).
-      </p>
     </div>
   )
 }

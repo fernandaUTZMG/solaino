@@ -216,9 +216,9 @@ function App() {
   }, [])
 
   const openBodegaProjectFromNotification = useCallback(
-    (projectId: string) => {
+    (projectId: string, opts?: { tab?: BodegaDeliveryJump['tab'] }) => {
       const tab: BodegaDeliveryJump['tab'] =
-        role === 'programadora_maquinaria' ? 'cnc' : 'diseno'
+        opts?.tab ?? (role === 'programadora_maquinaria' ? 'cnc' : 'diseno')
       setBodegaDeliveryJumpRequest({ projectId, tab })
       setView('bodega')
     },
@@ -260,9 +260,12 @@ function App() {
     }
   }
 
+  // Solo al iniciar sesión / cambiar de usuario — no en cada TOKEN_REFRESHED
+  // (eso sacaba al usuario de la sección al volver de otra pantalla).
+  const sessionUserId = session?.user?.id ?? null
   useEffect(() => {
     if (!showAuth) return
-    if (!session) {
+    if (!sessionUserId) {
       setRole('user')
       setMyProfile(null)
       setMainNavReady(false)
@@ -292,7 +295,7 @@ function App() {
       const nextRole = p.role
       setRole(nextRole)
 
-      const uid = session.user.id
+      const uid = sessionUserId
       const fromHash = parseHashMainView()
       const fromStore = readStoredMainView(uid)
       const preferredRaw =
@@ -319,7 +322,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [session, showAuth])
+  }, [sessionUserId, showAuth])
 
   useEffect(() => {
     if (!showAuth || !session?.user?.id || !mainNavReady) return

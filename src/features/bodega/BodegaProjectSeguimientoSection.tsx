@@ -52,13 +52,10 @@ export function BodegaProjectSeguimientoSection(props: Props) {
             Notas y historial — {TAB_LABEL[props.tab]}
           </h3>
           <p className="mt-1 max-w-2xl text-[12px] leading-relaxed opacity-90">
-            Registra avance o comentarios a la izquierda; a la derecha ves todo lo guardado en el proyecto.
+            Deja comentarios a la izquierda; a la derecha ves el historial del proyecto.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <span className="rounded-lg border border-white/40 bg-white/60 px-3 py-1.5 text-[11px] font-bold text-slate-800 shadow-sm backdrop-blur-sm">
-            Avance manual {props.avancePct}%
-          </span>
           <span
             className={[
               'rounded-lg border px-3 py-1.5 text-[11px] font-bold',

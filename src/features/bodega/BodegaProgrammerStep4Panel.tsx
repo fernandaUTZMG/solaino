@@ -9,8 +9,6 @@ import {
   upsertPieceFromDesignPath,
 } from '../../lib/bodegaPiecesRepo'
 import { pieceDesignApproved } from '../../lib/bodegaDesignPieceReview'
-import { findMatchingPdfPathForPart } from '../../lib/designZipPiecePairs'
-import { pieceHasPlano } from '../../lib/bodegaPieceDesignDrawing'
 import {
   canReassignProgrammerCncTorno,
   isSwPartsAssignmentComplete,
@@ -22,7 +20,6 @@ import {
 import { pieceForZipPath } from '../../lib/bodegaXtAssemblies'
 import type { BodegaProjectPieceRow } from '../../lib/bodegaPiecesRepo'
 import {
-  BODEGA_ZIP_ENTRY_DRAG_MIME,
   filterSwPartZipPaths,
   isAccesorioDesignZipPath,
   isZipPathAllowedForProgrammerBucket,
@@ -41,16 +38,15 @@ type ApprovedDesignZipInfo = {
   pathsError: string | null
 }
 
-const BODEGA_PIECE_DRAG_MIME = 'application/x-bodega-piece-id'
+const DESTINOS: { id: ProgrammerBucket; label: string; hint: string }[] = [
+  { id: 'cnc', label: 'CNC', hint: 'Se programa en oficina' },
+  { id: 'torno', label: 'Torno', hint: 'Se programa para torno' },
+  { id: 'perfilado', label: 'Perfiladora', hint: 'Va a taller, sin programa' },
+  { id: 'accesorios', label: 'Accesorio', hint: 'Sin proceso' },
+]
 
-function readDroppedZipPath(dt: DataTransfer): string | null {
-  const a = dt.getData(BODEGA_ZIP_ENTRY_DRAG_MIME).trim()
-  if (a) return a
-  return dt.getData('text/plain').trim() || null
-}
-
-function readDroppedPieceId(dt: DataTransfer): string | null {
-  return dt.getData(BODEGA_PIECE_DRAG_MIME).trim() || null
+function destinoLabel(id: ProgrammerBucket | null | undefined): string {
+  return DESTINOS.find((d) => d.id === id)?.label ?? 'Sin destino'
 }
 
 function assignmentFilterQuery(raw: string): string {
@@ -76,9 +72,38 @@ function pieceMatchesAssignmentFilter(p: BodegaProjectPieceRow, q: string): bool
   return label.includes(q) || path.includes(q) || pathLabel.includes(q) || finish.includes(q)
 }
 
-function assignmentCountLabel(filtered: number, total: number, q: string): string {
-  if (q && filtered !== total) return `${filtered} de ${total}`
-  return String(filtered)
+function DestinoButtons(props: {
+  current?: ProgrammerBucket | null
+  disabled?: boolean
+  allowed?: ProgrammerBucket[]
+  onPick: (bucket: ProgrammerBucket) => void
+}) {
+  const allowed = props.allowed ?? DESTINOS.map((d) => d.id)
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {DESTINOS.map((d) => {
+        const active = props.current === d.id
+        const ok = allowed.includes(d.id)
+        return (
+          <button
+            key={d.id}
+            type="button"
+            disabled={props.disabled || !ok}
+            title={d.hint}
+            className={[
+              'min-h-[36px] rounded-lg px-3 py-1.5 text-[12px] font-bold transition disabled:cursor-not-allowed disabled:opacity-40',
+              active
+                ? 'bg-section-navy text-white shadow-sm'
+                : 'border border-slate-300 bg-white text-slate-800 hover:border-section-navy hover:bg-sky-50',
+            ].join(' ')}
+            onClick={() => props.onPick(d.id)}
+          >
+            {d.label}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 type Props = {
@@ -93,7 +118,6 @@ type Props = {
   programmingDeliveryReady: boolean
   onReload: () => Promise<void>
   onRoutesConfirmed?: () => void
-  /** Sin envoltorio de sección (dentro de BodegaProgramacionWorkspace). */
   embedded?: boolean
 }
 
@@ -107,7 +131,6 @@ export function BodegaProgrammerStep4Panel(props: Props) {
   )
 
   const [pathFilter, setPathFilter] = useState('')
-  const [dragOverBucket, setDragOverBucket] = useState<ProgrammerBucket | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [selectedPending, setSelectedPending] = useState<string[]>([])
@@ -120,7 +143,13 @@ export function BodegaProgrammerStep4Panel(props: Props) {
         .map((p) => p.source_path!),
     [props.pieces],
   )
-  const partPaths = productionPartPaths
+  const partPaths = useMemo(() => {
+    const fromZip = filterSwPartZipPaths(zipPaths)
+    if (fromZip.length === 0) return productionPartPaths
+    const seen = new Set(fromZip.map((p) => p.toLowerCase()))
+    const extra = productionPartPaths.filter((p) => !seen.has(p.toLowerCase()))
+    return extra.length === 0 ? fromZip : [...fromZip, ...extra]
+  }, [zipPaths, productionPartPaths])
   const cncPieces = useMemo(() => piecesForCncModule(props.pieces, 'programacion'), [props.pieces])
   const tornoPieces = useMemo(() => piecesForCncModule(props.pieces, 'torno'), [props.pieces])
   const perfiladoPieces = useMemo(() => piecesForPerfiladoBucket(props.pieces), [props.pieces])
@@ -139,7 +168,6 @@ export function BodegaProgrammerStep4Panel(props: Props) {
   }, [partPaths, props.pieces])
 
   const pendingPathSet = useMemo(() => new Set(pendingPaths), [pendingPaths])
-  /** Rutas ya confirmadas: solo se pueden asignar piezas que aún están pendientes (p. ej. nueva entrega de diseño). */
   const canAssign = canEdit && (!props.routesLocked || pendingPaths.length > 0)
 
   function mayAssignPath(zipPath: string): boolean {
@@ -174,6 +202,7 @@ export function BodegaProgrammerStep4Panel(props: Props) {
     [assignmentQuery],
   )
 
+  const filteredPending = filterPaths(pendingPaths)
   const filteredCncPieces = useMemo(() => filterPieces(cncPieces), [cncPieces, filterPieces])
   const filteredTornoPieces = useMemo(() => filterPieces(tornoPieces), [tornoPieces, filterPieces])
   const filteredPerfiladoPieces = useMemo(
@@ -185,17 +214,22 @@ export function BodegaProgrammerStep4Panel(props: Props) {
     [accesoriosPieces, filterPieces],
   )
 
+  const assignedGroups: { id: ProgrammerBucket; pieces: BodegaProjectPieceRow[]; filtered: BodegaProjectPieceRow[] }[] = [
+    { id: 'cnc', pieces: cncPieces, filtered: filteredCncPieces },
+    { id: 'torno', pieces: tornoPieces, filtered: filteredTornoPieces },
+    { id: 'perfilado', pieces: perfiladoPieces, filtered: filteredPerfiladoPieces },
+    { id: 'accesorios', pieces: accesoriosPieces, filtered: filteredAccesoriosPieces },
+  ]
+
   const assignmentComplete = useMemo(
-    () => isSwPartsAssignmentComplete(props.pieces),
-    [props.pieces],
+    () => isSwPartsAssignmentComplete(props.pieces, zipPaths),
+    [props.pieces, zipPaths],
   )
 
-  const showPanel =
-    designApproved &&
-    props.foldersConfirmed &&
-    props.programmingDeliveryReady &&
-    (prog || adminLike)
+  const assignedCount = partPaths.length - pendingPaths.length
+  const progressPct = partPaths.length === 0 ? 0 : Math.round((assignedCount / partPaths.length) * 100)
 
+  const showPanel = designApproved && props.foldersConfirmed && (prog || adminLike)
   if (!showPanel) return null
 
   function getDeliveryScrollEl(): HTMLElement | null {
@@ -241,7 +275,7 @@ export function BodegaProgrammerStep4Panel(props: Props) {
       return
     }
     if (list.some((p) => !isZipPathAllowedForProgrammerBucket(p, bucket))) {
-      setErr('Solo piezas .PRT / .SLCPRT / .SLDPRT del diseño.')
+      setErr('Solo piezas del ensamble de diseño (.x_t o .PRT).')
       return
     }
     setBusy(true)
@@ -277,7 +311,7 @@ export function BodegaProgrammerStep4Panel(props: Props) {
     if (props.routesLocked) return
     if (!(prog || adminLike)) return
     if (!assignmentComplete) {
-      setErr('Asigna cada pieza a CNC, Torno, Perfilado o Accesorios (con su plano PDF, salvo accesorios).')
+      setErr('Asigna cada pieza a CNC, Torno, Perfiladora o Accesorio.')
       return
     }
     setBusy(true)
@@ -295,25 +329,37 @@ export function BodegaProgrammerStep4Panel(props: Props) {
     }
   }
 
-  function mayEditPieceInKanban(p: BodegaProjectPieceRow): boolean {
+  function mayEditAssignedPiece(p: BodegaProjectPieceRow): boolean {
     if (!canEdit) return false
     if (!props.routesLocked) return true
     return canReassignProgrammerCncTorno(p)
   }
 
-  async function reassignPieceBucket(pieceId: string, bucket: 'cnc' | 'torno') {
-    const piece = props.pieces.find((p) => p.id === pieceId)
-    if (!piece || !mayEditPieceInKanban(piece)) {
-      if (piece && props.routesLocked) {
-        setErr(reassignProgrammerCncTornoBlockedReason(piece) ?? 'No se puede cambiar esta pieza.')
-      }
+  function allowedDestinosForPiece(p: BodegaProjectPieceRow): ProgrammerBucket[] {
+    if (!props.routesLocked) return DESTINOS.map((d) => d.id)
+    if (canReassignProgrammerCncTorno(p)) return ['cnc', 'torno']
+    return p.programmer_bucket ? [p.programmer_bucket] : []
+  }
+
+  async function changeAssignedPiece(p: BodegaProjectPieceRow, bucket: ProgrammerBucket) {
+    if (p.programmer_bucket === bucket) return
+    if (!mayEditAssignedPiece(p) && props.routesLocked) {
+      setErr(reassignProgrammerCncTornoBlockedReason(p) ?? 'No se puede cambiar esta pieza.')
+      return
+    }
+    if (!props.routesLocked && p.source_path && mayAssignPath(p.source_path)) {
+      await assignPathsToBucket([p.source_path], bucket)
+      return
+    }
+    if (bucket !== 'cnc' && bucket !== 'torno') {
+      if (p.source_path) await assignPathsToBucket([p.source_path], bucket)
       return
     }
     setBusy(true)
     setErr(null)
     try {
       await withScrollRestore(async () => {
-        await updatePieceProgrammerBucket({ pieceId, programmerBucket: bucket })
+        await updatePieceProgrammerBucket({ pieceId: p.id, programmerBucket: bucket })
         await props.onReload()
       })
     } catch (e) {
@@ -339,552 +385,238 @@ export function BodegaProgrammerStep4Panel(props: Props) {
     }
   }
 
-  async function assignPathToBucket(zipPath: string, bucket: ProgrammerBucket) {
-    if (!mayAssignPath(zipPath)) {
-      setErr(assignmentBlockedReason(zipPath) ?? 'No se puede asignar esta pieza.')
-      return
-    }
-    if (!isZipPathAllowedForProgrammerBucket(zipPath, bucket)) {
-      setErr('Solo piezas .PRT / .SLCPRT / .SLDPRT del diseño.')
-      return
-    }
-    await assignPathsToBucket([zipPath], bucket)
-  }
+  const inner = (
+    <div className={props.embedded ? 'space-y-5' : 'space-y-5 p-4 sm:p-6'}>
+      {err ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-900">{err}</div>
+      ) : null}
 
-  async function movePerfiladoPieceToPending(pieceId: string) {
-    if (props.routesLocked || !canEdit) return
-    setBusy(true)
-    setErr(null)
-    try {
-      await withScrollRestore(async () => {
-        await updatePieceProgrammerBucket({ pieceId, programmerBucket: null })
-        await props.onReload()
-      })
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se devolvió a pendientes')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function moveAccesoriosPieceToPending(pieceId: string) {
-    if (!canAssign) return
-    setBusy(true)
-    setErr(null)
-    try {
-      await withScrollRestore(async () => {
-        await updatePieceProgrammerBucket({ pieceId, programmerBucket: null })
-        await props.onReload()
-      })
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'No se devolvió a pendientes')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function renderAccesoriosColumn() {
-    const isOver = dragOverBucket === 'accesorios'
-    const allowDrop = canAssign && !busy
-    return (
-      <div
-        className={[
-          'flex min-h-[320px] flex-col rounded-2xl border-2 border-dashed p-3 sm:min-h-[420px] sm:p-4',
-          isOver ? 'border-slate-500 bg-slate-100' : 'border-slate-300/90 bg-slate-50/50',
-        ].join(' ')}
-        onDragOver={(e) => {
-          if (!allowDrop) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'copy'
-          setDragOverBucket('accesorios')
-        }}
-        onDragLeave={() => setDragOverBucket((b) => (b === 'accesorios' ? null : b))}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOverBucket(null)
-          if (!allowDrop) return
-          const path = readDroppedZipPath(e.dataTransfer)
-          if (path) void assignPathToBucket(path, 'accesorios')
-        }}
-      >
-        <p className="mb-1 shrink-0 border-b border-slate-200/80 pb-2 text-[13px] font-bold text-slate-900">
-          Accesorios ({assignmentCountLabel(filteredAccesoriosPieces.length, accesoriosPieces.length, assignmentQuery)})
+      {props.routesLocked && pendingPaths.length > 0 ? (
+        <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-950">
+          Hay <strong>{pendingPaths.length} pieza(s)</strong> nueva(s) sin destino. Asígnale CNC, torno, perfiladora o
+          accesorio.
         </p>
-        <p className="mb-3 text-[11px] leading-snug text-slate-700">
-          Piezas de la carpeta <strong>ACCESORIOS</strong> u otras que <strong>no llevan proceso</strong> (tornillos,
-          tuercas, etc.).
-        </p>
-        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-          {accesoriosPieces.length === 0 ? (
-            <li className="rounded-lg border border-dashed border-slate-300/70 bg-white/60 px-3 py-6 text-center text-[12px] text-slate-500">
-              Vacío
-            </li>
-          ) : filteredAccesoriosPieces.length === 0 ? (
-            <li className="rounded-lg border border-dashed border-slate-300/70 bg-white/60 px-3 py-6 text-center text-[12px] text-slate-600">
-              Ninguna coincide con «{pathFilter.trim()}».
-            </li>
-          ) : (
-            filteredAccesoriosPieces.map((p) => (
-              <li key={p.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
-                {p.source_path ? (
-                  <DesignPathIdentity path={p.source_path} compact />
-                ) : (
-                  <p className="font-semibold text-slate-900">{pieceDisplayLabel(p)}</p>
-                )}
-                <p className="mt-1 text-[11px] font-medium text-slate-600">Sin proceso de manufactura</p>
-                {canAssign ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="mt-2 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700"
-                    onClick={() => void moveAccesoriosPieceToPending(p.id)}
-                  >
-                    ← Pendientes
-                  </button>
-                ) : null}
-              </li>
-            ))
-          )}
-        </ul>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {DESTINOS.map((d) => (
+          <div key={d.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+            <p className="text-[12px] font-bold text-section-navy">{d.label}</p>
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{d.hint}</p>
+          </div>
+        ))}
       </div>
-    )
-  }
 
-  function renderPerfiladoColumn() {
-    const isOver = dragOverBucket === 'perfilado'
-    const allowDrop = canAssign && !busy
-    return (
-      <div
-        className={[
-          'flex min-h-[320px] flex-col rounded-2xl border-2 border-dashed p-3 sm:min-h-[420px] sm:p-4',
-          isOver ? 'border-programacion-600 bg-programacion-100' : 'border-programacion-300/90 bg-programacion-50/40',
-        ].join(' ')}
-        onDragOver={(e) => {
-          if (!allowDrop) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'copy'
-          setDragOverBucket('perfilado')
-        }}
-        onDragLeave={() => setDragOverBucket((b) => (b === 'perfilado' ? null : b))}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOverBucket(null)
-          if (!allowDrop) return
-          const path = readDroppedZipPath(e.dataTransfer)
-          if (path) void assignPathToBucket(path, 'perfilado')
-        }}
-      >
-        <p className="mb-1 shrink-0 border-b border-programacion-200/60 pb-2 text-[13px] font-bold text-programacion-950">
-          Perfilado ({assignmentCountLabel(filteredPerfiladoPieces.length, perfiladoPieces.length, assignmentQuery)})
-        </p>
-        <p className="mb-3 text-[11px] leading-snug text-programacion-900/85">
-          Sin programación CNC/Torno: al confirmar pasan a <strong>Taller → Perfilado</strong>.
-        </p>
-        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-          {perfiladoPieces.length === 0 ? (
-            <li className="rounded-lg border border-dashed border-programacion-300/70 bg-white/60 px-3 py-6 text-center text-[12px] text-slate-500">
-              Vacío
-            </li>
-          ) : filteredPerfiladoPieces.length === 0 ? (
-            <li className="rounded-lg border border-dashed border-programacion-300/70 bg-white/60 px-3 py-6 text-center text-[12px] text-slate-600">
-              Ninguna coincide con «{pathFilter.trim()}».
-            </li>
-          ) : (
-            filteredPerfiladoPieces.map((p) => (
-              <li key={p.id} className="rounded-lg border border-programacion-200 bg-white px-3 py-2.5 shadow-sm">
-                  {p.source_path ? (
-                    <DesignPathIdentity path={p.source_path} compact />
-                  ) : (
-                    <p className="font-semibold text-slate-900">{pieceDisplayLabel(p)}</p>
-                  )}
-                  <p className="mt-1 text-[11px] text-programacion-900">
-                    Plano:{' '}
-                  {pieceHasPlano(p, zipPaths) ? (
-                    <span className="font-semibold text-emerald-800">sí</span>
-                  ) : (
-                    <span className="font-semibold text-amber-800">falta — súbelo en Diseño</span>
-                  )}
-                </p>
-                {!props.routesLocked && canEdit ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="mt-2 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700"
-                    onClick={() => void movePerfiladoPieceToPending(p.id)}
-                  >
-                    ← Pendientes
-                  </button>
-                ) : null}
-              </li>
-            ))
-          )}
-        </ul>
+      <div>
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <p className="text-[13px] font-semibold text-section-navy">
+            {assignedCount} de {partPaths.length} piezas con destino
+          </p>
+          <p className="font-mono text-[12px] tabular-nums text-slate-500">{progressPct}%</p>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-full rounded-full bg-section-navy transition-all" style={{ width: `${progressPct}%` }} />
+        </div>
       </div>
-    )
-  }
 
-  function renderBucketColumn(
-    bucket: 'cnc' | 'torno',
-    title: string,
-    assigned: BodegaProjectPieceRow[],
-    filteredAssigned: BodegaProjectPieceRow[],
-    accent: string,
-  ) {
-    const isOver = dragOverBucket === bucket
-    const otherBucket: 'cnc' | 'torno' = bucket === 'cnc' ? 'torno' : 'cnc'
-    const allowDrop = canEdit && !busy
-    return (
-      <div
-        className={[
-          'flex min-h-[320px] flex-col rounded-2xl border-2 border-dashed p-3 sm:min-h-[420px] sm:p-4',
-          isOver ? 'border-programacion-500 bg-programacion-50' : accent,
-        ].join(' ')}
-        onDragOver={(e) => {
-          if (!allowDrop || busy) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'move'
-          setDragOverBucket(bucket)
-        }}
-        onDragLeave={() => setDragOverBucket((b) => (b === bucket ? null : b))}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDragOverBucket(null)
-          if (!allowDrop || busy) return
-          const pieceId = readDroppedPieceId(e.dataTransfer)
-          if (pieceId) {
-            void reassignPieceBucket(pieceId, bucket)
-            return
-          }
-          if (!canAssign) return
-          const path = readDroppedZipPath(e.dataTransfer)
-          if (path) void assignPathToBucket(path, bucket)
-        }}
-      >
-        <p className="mb-3 shrink-0 border-b border-programacion-200/60 pb-2 text-[13px] font-bold text-programacion-950">
-          {title} ({assignmentCountLabel(filteredAssigned.length, assigned.length, assignmentQuery)})
-        </p>
-        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-          {assigned.length === 0 ? (
-            <li className="rounded-lg border border-dashed border-programacion-300/70 bg-white/60 px-3 py-6 text-center text-[12px] text-slate-500">
-              Vacío
-            </li>
-          ) : filteredAssigned.length === 0 ? (
-            <li className="rounded-lg border border-dashed border-programacion-300/70 bg-white/60 px-3 py-6 text-center text-[12px] text-slate-600">
-              Ninguna coincide con «{pathFilter.trim()}».
-            </li>
-          ) : (
-            filteredAssigned.map((p) => {
-              const editable = mayEditPieceInKanban(p)
-              const blocked = props.routesLocked ? reassignProgrammerCncTornoBlockedReason(p) : null
+      <input
+        type="search"
+        value={pathFilter}
+        onChange={(e) => setPathFilter(e.target.value)}
+        placeholder="Buscar pieza…"
+        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-[14px] shadow-sm focus:border-section-navy/40 focus:outline-none focus:ring-2 focus:ring-section-navy/20"
+        disabled={props.approvedDesign?.pathsLoading}
+        autoComplete="off"
+      />
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div>
+            <p className="text-[14px] font-bold text-section-navy">1. Piezas sin destino</p>
+            <p className="text-[12px] text-slate-500">Elige a dónde va cada una.</p>
+          </div>
+          <span className="rounded-lg bg-section-navy px-2.5 py-1 text-[12px] font-bold text-white">
+            {filteredPending.length}
+            {assignmentQuery && filteredPending.length !== pendingPaths.length ? ` de ${pendingPaths.length}` : ''}
+          </span>
+        </div>
+
+        {canAssign && selectedPending.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 border-b border-sky-200 bg-sky-50 px-4 py-3">
+            <p className="text-[12px] font-semibold text-slate-800">
+              {selectedPending.length} seleccionada{selectedPending.length === 1 ? '' : 's'} →
+            </p>
+            <DestinoButtons disabled={busy} onPick={(b) => void assignPathsToBucket(selectedPending, b)} />
+            <button
+              type="button"
+              className="text-[12px] font-semibold text-slate-600 underline"
+              onClick={() => clearSelection()}
+            >
+              Quitar selección
+            </button>
+          </div>
+        ) : canAssign && filteredPending.length > 1 ? (
+          <div className="border-b border-slate-100 px-4 py-2">
+            <button
+              type="button"
+              disabled={busy}
+              className="text-[12px] font-semibold text-section-navy hover:underline disabled:opacity-50"
+              onClick={() => selectAllVisiblePending(filteredPending)}
+            >
+              Seleccionar todas para enviar juntas
+            </button>
+          </div>
+        ) : null}
+
+        {filteredPending.length === 0 ? (
+          <p className="px-4 py-8 text-center text-[13px] text-slate-500">
+            {partPaths.length === 0
+              ? 'No hay piezas en el ensamble .x_t.'
+              : assignmentQuery && pendingPaths.length > 0
+                ? `Ninguna pendiente coincide con «${pathFilter.trim()}».`
+                : 'Todas las piezas ya tienen destino.'}
+          </p>
+        ) : (
+          <ol>
+            {filteredPending.map((path, i) => {
+              const selected = selectedPending.includes(path)
               return (
                 <li
-                  key={p.id}
-                  draggable={editable && !busy}
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(BODEGA_PIECE_DRAG_MIME, p.id)
-                    e.dataTransfer.effectAllowed = 'move'
-                  }}
-                  className="rounded-lg border border-programacion-200 bg-white px-3 py-2.5 shadow-sm"
+                  key={path}
+                  className={[
+                    'flex flex-col gap-3 border-b border-slate-100 px-4 py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between',
+                    i % 2 === 0 ? 'bg-white' : 'bg-slate-50/70',
+                    selected ? 'ring-2 ring-inset ring-section-navy/25' : '',
+                  ].join(' ')}
                 >
-                  {p.source_path ? (
-                    <DesignPathIdentity path={p.source_path} compact />
-                  ) : (
-                    <p className="font-semibold text-slate-900">{pieceDisplayLabel(p)}</p>
-                  )}
-                  <p className="mt-1 text-[11px] text-slate-600">
-                    Acabado: <span className="font-medium">{p.finish_spec ?? '—'}</span>
-                  </p>
-                  {editable ? (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        disabled={busy || p.programmer_bucket === otherBucket}
-                        className={[
-                          'rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-white disabled:opacity-50',
-                          otherBucket === 'cnc' ? 'bg-programacion-600' : 'bg-programacion-700',
-                        ].join(' ')}
-                        onClick={() => void reassignPieceBucket(p.id, otherBucket)}
-                      >
-                        → {otherBucket === 'cnc' ? 'CNC' : 'Torno'}
-                      </button>
-                      {!props.routesLocked ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                          onClick={() => void movePieceToPending(p.id)}
-                        >
-                          ← Pendientes
-                        </button>
+                  <div className="flex min-w-0 items-start gap-3">
+                    {canAssign && filteredPending.length > 1 ? (
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 accent-section-navy"
+                        checked={selected}
+                        disabled={busy}
+                        onChange={() => toggleSelectPending(path)}
+                        aria-label={`Seleccionar ${displayLabelFromDesignPath(path)}`}
+                      />
+                    ) : null}
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-section-navy/10 text-[11px] font-bold text-section-navy">
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <DesignPathIdentity path={path} compact />
+                      {isAccesorioDesignZipPath(path) ? (
+                        <p className="mt-1 text-[11px] text-slate-500">Suele ir a Accesorio</p>
                       ) : null}
                     </div>
-                  ) : blocked ? (
-                    <p className="mt-2 text-[10px] leading-snug text-amber-900">{blocked}</p>
+                  </div>
+                  {canAssign ? (
+                    <DestinoButtons
+                      disabled={busy || !mayAssignPath(path)}
+                      onPick={(b) => void assignPathsToBucket([path], b)}
+                    />
                   ) : null}
                 </li>
               )
-            })
-          )}
-        </ul>
-      </div>
-    )
-  }
-
-  const filteredPending = filterPaths(pendingPaths)
-  const selectedVisibleCount = filteredPending.filter((p) => selectedPending.includes(p)).length
-
-  const inner = (
-      <div className={props.embedded ? 'space-y-5' : 'space-y-5 p-4 sm:p-6'}>
-        {err ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-900">{err}</div>
-        ) : null}
-
-        {props.routesLocked && pendingPaths.length > 0 ? (
-          <p className="rounded-xl border border-amber-300/90 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-950">
-            <strong>Hay {pendingPaths.length} pieza(s) nueva(s) sin destino.</strong> La asignación general ya está
-            confirmada, pero puedes enviar estas piezas pendientes a CNC, Torno, Perfilado o Accesorios.
-          </p>
-        ) : null}
-        {props.routesLocked ? (
-          <p className="rounded-xl border border-programacion-200/90 bg-programacion-50/70 px-4 py-3 text-[13px] leading-relaxed text-programacion-950">
-            <strong>CNC / Torno:</strong> programación con plano PDF, luego «Terminar → Perfilado» (taller) o «sin
-            perfilado» (maquinado). <strong>Perfilado:</strong> van a <strong>Taller → Perfilado</strong>.{' '}
-            <strong>Accesorios:</strong> sin proceso (carpeta ACCESORIOS del diseño).
-          </p>
-        ) : (
-          <p className="rounded-xl border border-programacion-200/80 bg-programacion-50/60 px-4 py-3 text-[13px] text-programacion-950">
-            Cada pieza debe tener su <strong>plano PDF</strong> (carpeta de diseño o adjunto en Diseño), excepto
-            accesorios. Asigna destino por pieza antes de confirmar.
-          </p>
+            })}
+          </ol>
         )}
+      </section>
 
-        <input
-          type="search"
-          value={pathFilter}
-          onChange={(e) => setPathFilter(e.target.value)}
-          placeholder="Buscar en todas las columnas (ej. base, jaladera)…"
-          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-[14px] shadow-sm focus:border-programacion-400 focus:outline-none focus:ring-2 focus:ring-programacion-200/60"
-          disabled={props.approvedDesign?.pathsLoading}
-          autoComplete="off"
-        />
-        {assignmentQuery ? (
-          <p className="text-[12px] font-medium text-programacion-900">
-            Filtro activo — Pendientes: {filteredPending.length}, CNC: {filteredCncPieces.length}, Torno:{' '}
-            {filteredTornoPieces.length}, Perfilado: {filteredPerfiladoPieces.length}, Accesorios:{' '}
-            {filteredAccesoriosPieces.length}
-          </p>
-        ) : null}
-
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-          <div className="flex min-h-[320px] flex-col rounded-2xl border-2 border-dashed border-programacion-200 bg-programacion-50/40 p-3 sm:min-h-[420px] sm:p-4">
-            <div className="shrink-0 border-b border-programacion-200/80 pb-3">
-              <p className="text-[13px] font-bold uppercase text-programacion-950">
-                Pendientes (
-                {assignmentCountLabel(filteredPending.length, pendingPaths.length, assignmentQuery)})
-              </p>
-              {canAssign ? (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-semibold text-programacion-900">
-                    Seleccionadas: {selectedPending.length}
-                    {selectedVisibleCount > 0 ? (
-                      <span className="text-programacion-800/80"> (visibles: {selectedVisibleCount})</span>
-                    ) : null}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy || filteredPending.length === 0}
-                    className="rounded-lg border border-programacion-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-programacion-950 disabled:opacity-50"
-                    onClick={() => selectAllVisiblePending(filteredPending)}
-                  >
-                    Seleccionar visibles
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy || selectedPending.length === 0}
-                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 disabled:opacity-50"
-                    onClick={() => clearSelection()}
-                  >
-                    Limpiar
-                  </button>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-[14px] font-bold text-section-navy">2. Ya asignadas</p>
+          <p className="text-[12px] text-slate-500">Revisa o cambia el destino si te equivocaste.</p>
+        </div>
+        {assignedCount === 0 ? (
+          <p className="px-4 py-8 text-center text-[13px] text-slate-500">Todavía no hay piezas asignadas.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {assignedGroups.map((g) =>
+              g.pieces.length === 0 ? null : (
+                <div key={g.id} className="px-4 py-3">
+                  <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-section-navy">
+                    {destinoLabel(g.id)} · {g.filtered.length}
+                    {assignmentQuery && g.filtered.length !== g.pieces.length ? ` de ${g.pieces.length}` : ''}
+                  </p>
+                  {g.filtered.length === 0 ? (
+                    <p className="text-[12px] text-slate-500">Ninguna coincide con el buscador.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {g.filtered.map((p) => {
+                        const editable = mayEditAssignedPiece(p)
+                        const blocked = props.routesLocked ? reassignProgrammerCncTornoBlockedReason(p) : null
+                        return (
+                          <li
+                            key={p.id}
+                            className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0">
+                              {p.source_path ? (
+                                <DesignPathIdentity path={p.source_path} compact />
+                              ) : (
+                                <p className="font-semibold text-slate-900">{pieceDisplayLabel(p)}</p>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {editable ? (
+                                <DestinoButtons
+                                  current={p.programmer_bucket}
+                                  disabled={busy}
+                                  allowed={allowedDestinosForPiece(p)}
+                                  onPick={(b) => void changeAssignedPiece(p, b)}
+                                />
+                              ) : (
+                                <span className="rounded-lg bg-section-navy px-2.5 py-1 text-[11px] font-bold text-white">
+                                  {destinoLabel(p.programmer_bucket)}
+                                </span>
+                              )}
+                              {!props.routesLocked && canEdit ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  className="rounded-lg border border-rose-300 bg-rose-600 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50"
+                                  onClick={() => void movePieceToPending(p.id)}
+                                >
+                                  Quitar
+                                </button>
+                              ) : blocked && !editable ? (
+                                <p className="text-[10px] text-amber-900">{blocked}</p>
+                              ) : null}
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
                 </div>
-              ) : null}
-              {canAssign && selectedPending.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="rounded-lg bg-programacion-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                    onClick={() => void assignPathsToBucket(selectedPending, 'cnc')}
-                  >
-                    Enviar seleccionadas → CNC
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="rounded-lg bg-programacion-700 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                    onClick={() => void assignPathsToBucket(selectedPending, 'torno')}
-                  >
-                    Enviar seleccionadas → Torno
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="rounded-lg bg-programacion-800 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                    onClick={() => void assignPathsToBucket(selectedPending, 'perfilado')}
-                  >
-                    Enviar seleccionadas → Perfilado
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="rounded-lg bg-slate-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                    onClick={() => void assignPathsToBucket(selectedPending, 'accesorios')}
-                  >
-                    Enviar seleccionadas → Accesorios
-                  </button>
-                </div>
-              ) : null}
-            </div>
-            <ul className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-              {filteredPending.length === 0 ? (
-                <li className="rounded-lg bg-white/80 px-3 py-6 text-center text-[12px] text-slate-600">
-                  {partPaths.length === 0
-                    ? 'No hay .PRT ni .SLCPRT en el ZIP.'
-                    : assignmentQuery && pendingPaths.length > 0
-                      ? `Ninguna pendiente coincide con «${pathFilter.trim()}».`
-                      : 'Todas las piezas ya tienen destino.'}
-                </li>
-              ) : (
-                filteredPending.map((path) => (
-                  <li
-                    key={path}
-                    draggable={canAssign && !busy}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData(BODEGA_ZIP_ENTRY_DRAG_MIME, path)
-                      e.dataTransfer.setData('text/plain', path)
-                      e.dataTransfer.effectAllowed = 'copy'
-                    }}
-                    className="rounded-lg border border-programacion-200/90 bg-white p-2.5 shadow-sm"
-                  >
-                    {canAssign ? (
-                      <label className="mb-2 flex select-none items-center gap-2 text-[11px] font-semibold text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={selectedPending.includes(path)}
-                          disabled={busy}
-                          onChange={() => toggleSelectPending(path)}
-                        />
-                        Seleccionar
-                      </label>
-                    ) : null}
-                    <DesignPathIdentity path={path} compact />
-                    {isAccesorioDesignZipPath(path) ? (
-                      <p className="mt-1 text-[10px] font-semibold text-slate-600">
-                        Carpeta accesorios — suele ir a <strong>Accesorios</strong>
-                      </p>
-                    ) : null}
-                    {(() => {
-                      const piece = pieceForZipPath(props.pieces, path)
-                      const pdfPath = findMatchingPdfPathForPart(path, zipPaths)
-                      const hasPdf =
-                        Boolean(pdfPath) ||
-                        Boolean(piece?.design_drawing_storage_path && piece.design_drawing_name)
-                      return (
-                        <p className="mt-1 text-[11px]">
-                          Plano:{' '}
-                          {hasPdf ? (
-                            <span className="font-semibold text-emerald-800">sí</span>
-                          ) : (
-                            <span className="font-semibold text-amber-800">falta</span>
-                          )}
-                        </p>
-                      )
-                    })()}
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        disabled={busy || !mayAssignPath(path)}
-                        className="rounded-lg bg-programacion-600 px-2.5 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                        onClick={() => void assignPathToBucket(path, 'cnc')}
-                      >
-                        → CNC
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || !mayAssignPath(path)}
-                        className="rounded-lg bg-programacion-700 px-2.5 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                        onClick={() => void assignPathToBucket(path, 'torno')}
-                      >
-                        → Torno
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || !mayAssignPath(path)}
-                        className="rounded-lg bg-programacion-800 px-2.5 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                        onClick={() => void assignPathToBucket(path, 'perfilado')}
-                      >
-                        → Perfilado
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || !mayAssignPath(path)}
-                        className="rounded-lg bg-slate-600 px-2.5 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
-                        onClick={() => void assignPathToBucket(path, 'accesorios')}
-                      >
-                        → Accesorios
-                      </button>
-                    </div>
-                  </li>
-                ))
-              )}
-            </ul>
+              ),
+            )}
           </div>
+        )}
+      </section>
 
-          {renderBucketColumn(
-            'cnc',
-            'CNC',
-            cncPieces,
-            filteredCncPieces,
-            'border-programacion-300/90 bg-programacion-50/40',
-          )}
-          {renderBucketColumn(
-            'torno',
-            'Torno',
-            tornoPieces,
-            filteredTornoPieces,
-            'border-programacion-400/90 bg-programacion-100/35',
-          )}
-          {renderPerfiladoColumn()}
-          {renderAccesoriosColumn()}
-        </div>
-
-        <div className="rounded-xl border border-programacion-300/80 bg-programacion-50/80 p-4 sm:p-5">
-          <p className="text-[14px] font-semibold text-programacion-950">
-            Progreso: {partPaths.length - pendingPaths.length} / {partPaths.length} piezas asignadas
-          </p>
-          <p className="mt-1 text-[12px] text-programacion-900">
-            CNC {cncPieces.length} · Torno {tornoPieces.length} · Perfilado {perfiladoPieces.length} · Accesorios{' '}
-            {accesoriosPieces.length} · Pendientes {pendingPaths.length}
-          </p>
-          {props.routesLocked ? (
-            <p className="mt-3 text-[13px] font-medium text-emerald-900">
-              {pendingPaths.length > 0
-                ? `Asignación confirmada. Faltan ${pendingPaths.length} pieza(s) por definir destino.`
-                : 'Asignación confirmada. Usa los botones en cada columna si necesitas corregir.'}
-            </p>
-          ) : (
-            <button
-              type="button"
-              disabled={busy || !assignmentComplete}
-              title={!assignmentComplete ? 'Asigna cada pieza a CNC, Torno, Perfilado o Accesorios' : undefined}
-              className="mt-4 min-h-[48px] w-full rounded-xl bg-programacion-600 px-5 py-3 text-[14px] font-bold text-white shadow-sm disabled:opacity-50 sm:w-auto"
-              onClick={() => void confirmAssignment()}
-            >
-              {busy ? 'Confirmando…' : 'Confirmar asignación'}
-            </button>
-          )}
-        </div>
+      <div className="rounded-xl border border-slate-300 bg-white p-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
+        <p className="text-[13px] text-slate-600">
+          {props.routesLocked
+            ? pendingPaths.length > 0
+              ? `Asignación confirmada. Faltan ${pendingPaths.length} pieza(s).`
+              : 'Asignación confirmada.'
+            : 'Cuando todas tengan destino, confirma para seguir a programar.'}
+        </p>
+        {props.routesLocked ? null : (
+          <button
+            type="button"
+            disabled={busy || !assignmentComplete}
+            title={!assignmentComplete ? 'Asigna cada pieza a un destino' : undefined}
+            className="mt-3 min-h-[48px] w-full rounded-xl bg-section-navy px-5 py-3 text-[14px] font-bold text-white shadow-sm disabled:opacity-50 sm:mt-0 sm:w-auto"
+            onClick={() => void confirmAssignment()}
+          >
+            {busy ? 'Confirmando…' : 'Confirmar asignación'}
+          </button>
+        )}
       </div>
+    </div>
   )
 
   if (props.embedded) return inner
@@ -892,9 +624,7 @@ export function BodegaProgrammerStep4Panel(props: Props) {
   return (
     <section className={progSeccionCnc}>
       <h3 className={progTituloCnc}>
-        {props.routesLocked
-          ? 'Asignación CNC / Torno / Perfilado / Accesorios (confirmada)'
-          : 'Asignar piezas — CNC, Torno, Perfilado o Accesorios'}
+        {props.routesLocked ? 'Asignación confirmada' : 'Asignar piezas'}
       </h3>
       {inner}
     </section>

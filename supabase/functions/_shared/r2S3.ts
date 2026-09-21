@@ -1,5 +1,13 @@
 import { AwsClient } from 'https://esm.sh/aws4fetch@1.0.20'
 
+/** El objeto no está en R2: suele ser un registro de la BD cuyo archivo nunca se subió o vive en Supabase Storage. */
+export class R2ObjectNotFoundError extends Error {
+  constructor(public readonly objectKey: string) {
+    super(`R2: el objeto ${objectKey} no existe.`)
+    this.name = 'R2ObjectNotFoundError'
+  }
+}
+
 export type R2Config = {
   accountId: string
   bucketName: string
@@ -95,9 +103,10 @@ export async function r2CopyObject(cfg: R2Config, fromKey: string, toKey: string
     headers: { 'x-amz-copy-source': copySource },
   })
   const res = await fetch(signed)
+  if (res.status === 404) throw new R2ObjectNotFoundError(fromKey)
   if (!res.ok) {
     const t = await res.text().catch(() => '')
-    throw new Error(`R2 copy ${res.status}: ${t.slice(0, 200)}`)
+    throw new Error(`R2 copy ${res.status} (${fromKey} → ${toKey}): ${t.slice(0, 200)}`)
   }
 }
 

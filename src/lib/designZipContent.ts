@@ -23,7 +23,16 @@ export async function readZipEntryTexts(
 }
 
 export async function readZipEntryBytes(zipBlob: Blob, entryPath: string): Promise<Uint8Array | null> {
-  const zip = await JSZip.loadAsync(zipBlob)
+  let zip: JSZip
+  try {
+    zip = await JSZip.loadAsync(zipBlob)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/central directory|zip file/i.test(msg)) {
+      throw new Error('El archivo de diseño no es un ZIP (p. ej. un ensamble .x_t).')
+    }
+    throw e
+  }
   const norm = entryPath.replaceAll('\\', '/')
   const entry = zip.file(norm)
   if (!entry || entry.dir) return null

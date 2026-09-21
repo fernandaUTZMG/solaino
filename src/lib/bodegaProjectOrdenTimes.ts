@@ -5,6 +5,7 @@ import {
 } from './bodegaWorkIntervalsRepo'
 import {
   aggregatePieceMinutesByLane,
+  aggregatePieceWallMinutesByLane,
   type BodegaPieceIntervalRow,
   type BodegaPieceLane,
 } from './bodegaPieceIntervalsRepo'
@@ -34,10 +35,15 @@ export function emptyOrdenTimeBreakdown(): ProjectOrdenTimeBreakdown {
   }
 }
 
+/** Oficina CNC: solo programación (no máquina). */
 const WORK_PROGRAMACION_LANES: BodegaWorkIntervalLane[] = [
   'cnc_programacion',
   'cnc_torno',
   'cnc_perfilado',
+]
+
+/** Relojes de proyecto en máquina (legado / carriles maquina_*). */
+const WORK_MAQUINADO_LANES: BodegaWorkIntervalLane[] = [
   'maquina_programacion',
   'maquina_torno',
   'maquina_perfilado',
@@ -53,6 +59,23 @@ function sumLaneMinutes(m: Map<string, number>, lanes: string[]): number {
   return s
 }
 
+function sumWorkWallMinutes(
+  rows: BodegaWorkIntervalRow[],
+  lanes: BodegaWorkIntervalLane[],
+  now: Date,
+): number {
+  const laneSet = new Set<string>(lanes)
+  let s = 0
+  const nowMs = now.getTime()
+  for (const r of rows) {
+    if (!laneSet.has(r.lane)) continue
+    const start = new Date(r.started_at).getTime()
+    const end = r.ended_at ? new Date(r.ended_at).getTime() : nowMs
+    s += Math.max(0, (end - start) / 60000)
+  }
+  return s
+}
+
 export function computeProjectOrdenTimes(args: {
   workIntervals: BodegaWorkIntervalRow[]
   pieceIntervals: BodegaPieceIntervalRow[]
@@ -61,12 +84,15 @@ export function computeProjectOrdenTimes(args: {
   const now = args.nowRef ?? new Date()
   const byWork = aggregateBusinessMinutesByLane(args.workIntervals, now)
   const byPiece = aggregatePieceMinutesByLane(args.pieceIntervals, now)
+  // Maquinado CNC: minutos de reloj real (la máquina no se limita al horario de oficina).
+  const byPieceWall = aggregatePieceWallMinutesByLane(args.pieceIntervals, now)
 
   const disenoMin = byWork.get('diseno') ?? 0
   const programacionMin =
     sumLaneMinutes(byWork, WORK_PROGRAMACION_LANES) +
     sumLaneMinutes(byPiece, PIECE_PROGRAMACION_LANES)
-  const maquinadoMin = byPiece.get('maquinado') ?? 0
+  const maquinadoMin =
+    (byPieceWall.get('maquinado') ?? 0) + sumWorkWallMinutes(args.workIntervals, WORK_MAQUINADO_LANES, now)
   const perfiladoMin = byPiece.get('perfilado_operador') ?? 0
   const detalladoMin = byPiece.get('detallado') ?? 0
   const armadoMin = (byPiece.get('armado') ?? 0) + (byWork.get('armado') ?? 0)

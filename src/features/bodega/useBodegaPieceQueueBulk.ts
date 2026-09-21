@@ -67,11 +67,23 @@ export function getDeliveryScrollEl(): HTMLElement | null {
 export async function withDeliveryScrollRestore<T>(fn: () => Promise<T>): Promise<T> {
   const el = getDeliveryScrollEl()
   const top = el?.scrollTop ?? null
+  const active = document.activeElement
+  if (active instanceof HTMLElement && el?.contains(active)) {
+    active.blur()
+  }
   const out = await fn()
   if (el && top != null) {
-    requestAnimationFrame(() => {
+    const restore = () => {
       el.scrollTop = top
+    }
+    restore()
+    requestAnimationFrame(() => {
+      restore()
+      requestAnimationFrame(restore)
     })
+    window.setTimeout(restore, 0)
+    window.setTimeout(restore, 50)
+    window.setTimeout(restore, 120)
   }
   return out
 }

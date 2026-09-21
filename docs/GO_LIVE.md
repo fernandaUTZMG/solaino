@@ -19,7 +19,7 @@ Al terminar **todos**, ejecuta `supabase/notify_pgrst_reload_schema.sql`.
 | 5 | `patch_bodega_folio_partida_I.sql` | Folio partida -I |
 | 6 | `patch_bodega_proyectos_storage_maquinado_paths.sql` | Storage maquinado/programación |
 | 7 | `patch_bodega_piece_assembly_xt.sql` | Ensamble XT |
-| 8 | `patch_bodega_piece_design_drawing.sql` | Planos PDF por pieza |
+| 8 | `patch_bodega_planos_pdf_completo.sql` | Planos PDF por pieza + RLS piezas |
 | 9 | `patch_bodega_piece_maquinado_real_capture.sql` | Tiempo real maquinado |
 | 10 | `patch_design_version_package_category.sql` | Info cliente vs entrega |
 | 11 | `patch_bodega_piece_maquinado_estimate.sql` | Estimado maquinado |
@@ -37,6 +37,10 @@ Al terminar **todos**, ejecuta `supabase/notify_pgrst_reload_schema.sql`.
 | 23 | `patch_bodega_cloud_rename_rls_storage.sql` | Renombrar en Nube |
 | 24 | `patch_audit_log_clear_admin.sql` | Borrar historial (solo admin) |
 | 25 | `patch_bodega_historico.sql` | Módulo Histórico (archivo diseño / programación) |
+| 26 | `patch_bodega_work_interval_close_open.sql` | Cerrar/abrir reloj de oficina |
+| 27 | `patch_bodega_design_entrega_confirmada.sql` | Notificación entrega diseño |
+| 28 | `patch_bodega_design_xt_notifications.sql` | Notificaciones XT diseño |
+| 29 | `patch_bodega_planos_pdf_completo.sql` | Planos PDF (si aún no aplicaste el #8) |
 | — | `patch_app_notifications.sql` | Campana prioridad (si aún no) |
 | — | `notify_pgrst_reload_schema.sql` | Recargar API |
 

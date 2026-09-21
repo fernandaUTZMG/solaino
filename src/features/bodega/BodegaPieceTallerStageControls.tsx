@@ -39,7 +39,7 @@ type Props = {
 }
 
 const STEPS = [
-  { n: 1, title: 'Revisar documentos', hint: 'Plano PDF y programa si aplica (CNC/Torno).' },
+  { n: 1, title: 'Revisar documentos', hint: 'Plano PDF y programa CNC si aplica.' },
   { n: 2, title: 'Iniciar trabajo', hint: 'Registra el inicio en esta pieza.' },
   { n: 3, title: 'Cerrar etapa', hint: 'Al terminar, pulsa el botón de fin de etapa.' },
 ] as const
@@ -191,7 +191,7 @@ export function BodegaPieceTallerStageControls(props: Props) {
           }
           businessMinutes={props.minutes}
           businessMinutesLabel="Min. hábiles"
-          tone="slate"
+          tone="navy"
         />
 
         {props.canWork ? (

@@ -178,9 +178,10 @@ Deno.serve(async (req) => {
     ...(profileUsername.length >= 3 ? { username: profileUsername } : {}),
   }
 
+  // Contraseña sola: si se mezcla con email/metadata, GoTrue a veces no persiste el hash
+  // y el login responde 400 invalid_credentials aunque updateUserById diga OK.
   const { data: afterPwd, error: pwdErr } = await adminClient.auth.admin.updateUserById(targetId, {
     password: newPassword,
-    user_metadata,
   })
   if (pwdErr || !afterPwd?.user) {
     return new Response(JSON.stringify({ error: pwdErr?.message || 'No se pudo actualizar la contraseña' }), {
@@ -188,6 +189,8 @@ Deno.serve(async (req) => {
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
+
+  await adminClient.auth.admin.updateUserById(targetId, { user_metadata })
 
   let effectiveEmail = (afterPwd.user.email ?? '').trim().toLowerCase()
   if (!effectiveEmail) {
@@ -205,14 +208,43 @@ Deno.serve(async (req) => {
     } else {
       effectiveEmail = (afterEmail.user.email ?? loginEmail).trim().toLowerCase()
     }
+  } else {
+    await adminClient.auth.admin.updateUserById(targetId, { email_confirm: true })
   }
 
   await adminClient.from('profiles').update({ email: effectiveEmail }).eq('id', targetId)
 
+  const verifyEmail = effectiveEmail || loginEmail
+  const probe = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  })
+  let { error: verifyErr } = await probe.auth.signInWithPassword({
+    email: verifyEmail,
+    password: newPassword,
+  })
+  if (verifyErr) {
+    await adminClient.auth.admin.updateUserById(targetId, { password: newPassword })
+    ;({ error: verifyErr } = await probe.auth.signInWithPassword({
+      email: verifyEmail,
+      password: newPassword,
+    }))
+  }
+  if (verifyErr) {
+    return new Response(
+      JSON.stringify({
+        error:
+          `Auth no aceptó el inicio de sesión con ${verifyEmail} y la nueva clave (${verifyErr.message || verifyErr.code || 'invalid_credentials'}). ` +
+          'Vuelve a establecer la contraseña. Si el usuario entra solo con el nombre (sin @), el correo en Authentication debe ser usuario@solaino.local.',
+      }),
+      { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } },
+    )
+  }
+  await probe.auth.signOut({ scope: 'local' })
+
   return new Response(
     JSON.stringify({
       ok: true,
-      login_email: effectiveEmail || loginEmail,
+      login_email: verifyEmail,
       ...(email_alignment_warning ? { warning: email_alignment_warning } : {}),
     }),
     {

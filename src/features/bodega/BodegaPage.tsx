@@ -26,6 +26,7 @@ import {
   sanitizeStorageFileName,
   type OrdenCompraRow,
 } from '../../lib/bodegaOrdenes'
+import BodegaXtPruebaPanel from './BodegaXtPruebaPanel'
 import {
   BODEGA_PROYECTOS_BUCKET,
   createSignedUrlForDesignZip,
@@ -59,6 +60,7 @@ import {
   startWorkInterval,
   type BodegaWorkIntervalRow,
 } from '../../lib/bodegaWorkIntervalsRepo'
+import { closeWorkInterval, closeProgrammingOfficeClockIfComplete } from '../../lib/bodegaWorkIntervalClose'
 import { fetchPieceIntervalsForProject, fetchPieceIntervalsForProjects } from '../../lib/bodegaPieceIntervalsRepo'
 import type { BodegaPieceIntervalRow } from '../../lib/bodegaPieceIntervalsRepo'
 import {
@@ -70,12 +72,11 @@ import { formatBusinessMinutesShort } from '../../lib/bodegaProjectPhaseDuration
 import { formatDeliveryTabTime } from '../../lib/bodegaDeliveryTabTimes'
 import { BodegaDeliverySectionTimeStrip } from './BodegaDeliverySectionTimeStrip.tsx'
 import { BodegaProjectDeliveryTimesSummary } from './BodegaProjectDeliveryTimesSummary.tsx'
+import { OrdenTimeLegend } from './BodegaOrdenTimesUi.tsx'
 import {
-  OrdenProjectTimeGrid,
-  OrdenTimeLegend,
-  OrdenTimeSegmentsBar,
-  OrdenTimesSummaryLine,
-} from './BodegaOrdenTimesUi.tsx'
+  BodegaOrdenTab,
+  type OrdenTablaFila,
+} from './BodegaOrdenTab.tsx'
 import { fetchProjectActivity, insertProjectActivity, type ProjectActivityRow } from '../../lib/projectActivityRepo'
 import {
   guessImageContentType,
@@ -85,12 +86,15 @@ import {
 } from '../../lib/bodegaStorageUpload'
 import { businessMinutesBetween } from '../../lib/workHours'
 import { runDesignZipUpload } from '../../lib/bodegaDesignUploadFlow'
+import { applyDesignPlanosAutoAssign } from '../../lib/bodegaDesignPlanosAutoAssign'
+import { isXtDesignFile, parseXtFile } from '../../lib/xtParasolidPieces'
 import {
   confirmDesignFolders,
   fetchDesignConfirmedFolders,
   confirmedFolderKeySetForVersion,
   type DesignConfirmedFolderRow,
 } from '../../lib/designConfirmedFoldersRepo'
+import { notifyDesignerDesignEntregaConfirmada } from '../../lib/notifyBodegaDesignEntregaConfirmada'
 import {
   computeStep3FolderConfirmStatus,
   filterPathsToConfirmedFolders,
@@ -104,6 +108,7 @@ import {
   fetchProjectPieceFlowMeta,
   fetchProjectPieces,
   finalizeProjectBySupervisor,
+  syncProjectPiecesFromDesignPathsDetailed,
   type BodegaProjectPieceRow,
   type BodegaProjectPieceWithProject,
 } from '../../lib/bodegaPiecesRepo'
@@ -122,7 +127,6 @@ import {
 import {
   BODEGA_PRIORIDAD_NIVEL_PATCH,
   compareProjectPrioridadNivel,
-  hasProjectPrioridad,
   maxPrioridadNivel,
   parsePrioridadFromRow,
   prioridadRowHighlightClass,
@@ -135,15 +139,16 @@ import { BodegaPiecesWorkflowPanel } from './BodegaPiecesWorkflowPanel.tsx'
 import { BodegaDesignPiecePlanosPanel } from './BodegaDesignPiecePlanosPanel.tsx'
 import { BodegaDesignZipMissingPlanosModal } from './BodegaDesignZipMissingPlanosModal.tsx'
 import { BodegaDisenoWorkspace } from './BodegaDisenoWorkspace.tsx'
+import { BodegaDisenoDestinosPanel } from './BodegaDisenoDestinosPanel.tsx'
 import { BodegaProgramacionWorkspace } from './BodegaProgramacionWorkspace.tsx'
 import { BodegaProjectClockPanel } from './BodegaProjectClockPanel.tsx'
 import { BodegaSupervisorStep3Panel } from './BodegaSupervisorStep3Panel.tsx'
 import { BodegaProgrammerDeliveryPanel } from './BodegaProgrammerDeliveryPanel.tsx'
-import { BodegaProgrammerStep4Panel } from './BodegaProgrammerStep4Panel.tsx'
 import { BodegaProgrammerCncWorkspace } from './BodegaProgrammerCncWorkspace.tsx'
 import { BodegaProgrammerProgrammingFullscreen } from './BodegaProgrammerProgrammingFullscreen.tsx'
 import { BodegaProjectPiecePhotosWorkspace } from './BodegaProjectPiecePhotosWorkspace.tsx'
 import { BodegaProjectDeliveryFullscreen } from './BodegaProjectDeliveryFullscreen.tsx'
+import { useLiveClockTick } from './useLiveClockTick.ts'
 import { OrdenCompraPdfViewerModal } from './OrdenCompraPdfViewerModal.tsx'
 import { OrdenCompraCatalogEditModal } from './OrdenCompraCatalogEditModal.tsx'
 import { ProjectLinkOrdenCompraModal } from './ProjectLinkOrdenCompraModal.tsx'
@@ -155,14 +160,20 @@ import {
 import { BodegaProjectSeguimientoSection } from './BodegaProjectSeguimientoSection.tsx'
 import { BodegaOperatorMaquinadoWorkspace } from './BodegaOperatorMaquinadoWorkspace.tsx'
 import { BodegaProjectTallerWorkspace } from './BodegaProjectTallerWorkspace.tsx'
-import { readStoredBodegaSection, type BodegaHubSection } from './bodegaHubSection.ts'
+import {
+  clearStoredBodegaDeliveryWorkspace,
+  readStoredBodegaDeliveryWorkspace,
+  writeStoredBodegaDeliveryWorkspace,
+} from './bodegaDeliveryWorkspacePersist.ts'
 import {
   isSwPartsAssignmentComplete,
   piecesForCncModule,
+  piecesPendingInCncModule,
   programmerCncModulesWithPieces,
 } from '../../lib/bodegaProgrammerFlow'
 import { findDesignZipPiecesMissingPlanos, visibleDesignPieces, type DesignZipPiecePair } from '../../lib/designZipPiecePairs'
-import { analyzeDesignZip, isSwPartZipPath } from '../../lib/zipDesignPackage'
+import { analyzeDesignZip, filterSwPartZipPaths, isSwPartZipPath } from '../../lib/zipDesignPackage'
+import { isXtDesignVersion } from '../../lib/xtDesignManifest'
 
 type ProjectStatus =
   | 'pendiente'
@@ -333,179 +344,6 @@ function formatDateTimeEs(d: Date): string {
   }
 }
 
-/** Barra de avance % (0–100) para lectura rápida en pestaña Orden. */
-function OrdenAvancePctBar(props: { pct: number; className?: string }) {
-  const p = Math.min(100, Math.max(0, Math.round(props.pct)))
-  return (
-    <div
-      className={['h-2.5 w-full overflow-hidden rounded-full bg-slate-200/90 ring-1 ring-slate-200/60', props.className ?? '']
-        .filter(Boolean)
-        .join(' ')}
-      role="progressbar"
-      aria-valuenow={p}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
-      <div className="h-full rounded-full bg-emerald-600" style={{ width: `${p}%` }} />
-    </div>
-  )
-}
-
-/** Columnas tipo «termómetro» (píldoras verticales), eje común. */
-function OrdenColumnChart(props: {
-  rows: { label: string; value: number }[]
-  max: number
-  barClass: string
-  chartHeightPx?: number
-}) {
-  const maxV = Math.max(1, props.max)
-  const h = props.chartHeightPx ?? 128
-  return (
-    <div className="mt-4 w-full overflow-x-auto">
-      <div
-        className="flex min-w-[min(100%,560px)] items-end justify-between gap-0.5 border-b border-slate-200/90 px-1 pb-0.5 pt-1"
-        style={{ height: h + 46 }}
-      >
-        {props.rows.map((d) => {
-          const rawPct = (d.value / maxV) * 100
-          const barPct = d.value <= 0 ? 0 : Math.max(rawPct, 7)
-          return (
-            <div key={d.label} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
-              <span className="mb-1 h-4 shrink-0 text-[10px] font-semibold tabular-nums text-slate-700">
-                {d.value > 0 ? d.value : ''}
-              </span>
-              <div
-                className="relative w-2 shrink-0 rounded-full bg-slate-100 shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/60 sm:w-2.5"
-                style={{ height: h }}
-              >
-                <div
-                  className={['absolute bottom-0 left-0 right-0 rounded-full shadow-sm', props.barClass].join(' ')}
-                  style={{ height: `${barPct}%` }}
-                />
-              </div>
-              <p
-                className="mt-2 line-clamp-2 min-h-[2rem] w-full max-w-[3.75rem] px-0.5 text-center text-[8px] font-medium leading-tight text-slate-500 sm:text-[9px]"
-                title={d.label}
-              >
-                {d.label}
-              </p>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-/** Distribución terminados / en curso: franja proporcional + tarjetas de número. */
-function OrdenProyectosMixRing(props: { terminados: number; activos: number }) {
-  const sum = props.terminados + props.activos
-  if (sum < 1) {
-    return (
-      <div className="flex min-h-[9rem] w-full max-w-md flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/90 px-4 text-center text-[13px] font-medium text-slate-500">
-        Sin proyectos
-      </div>
-    )
-  }
-  const tp = (props.terminados / sum) * 100
-  const ap = 100 - tp
-  return (
-    <div className="w-full max-w-md space-y-4">
-      <div className="flex overflow-hidden rounded-full bg-slate-100 p-0.5 shadow-inner ring-1 ring-slate-200/70">
-        <div
-          className="flex min-h-[2.25rem] items-center justify-center bg-slate-700 text-[11px] font-bold text-white"
-          style={{ width: `${tp}%`, minWidth: props.terminados > 0 ? '2.25rem' : 0 }}
-          title={`Terminados: ${props.terminados}`}
-        >
-          {tp >= 22 ? `${Math.round(tp)}%` : props.terminados > 0 ? props.terminados : ''}
-        </div>
-        <div
-          className="flex min-h-[2.25rem] items-center justify-center bg-blue-600 text-[11px] font-bold text-white"
-          style={{ width: `${ap}%`, minWidth: props.activos > 0 ? '2.25rem' : 0 }}
-          title={`En curso: ${props.activos}`}
-        >
-          {ap >= 22 ? `${Math.round(ap)}%` : props.activos > 0 ? props.activos : ''}
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-3 text-center shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Terminados</p>
-          <p className="mt-0.5 text-3xl font-bold tabular-nums tracking-tight text-slate-900">{props.terminados}</p>
-        </div>
-        <div className="rounded-xl border border-blue-200/80 bg-blue-50/70 px-3 py-3 text-center shadow-sm">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-blue-800/75">En curso</p>
-          <p className="mt-0.5 text-3xl font-bold tabular-nums tracking-tight text-blue-950">{props.activos}</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** Barra apilada tipo píldora (franja laboral). */
-function OrdenStackedBar(props: {
-  left: number
-  right: number
-  leftClass: string
-  rightClass: string
-  leftCaption: string
-  rightCaption: string
-}) {
-  const sum = Math.max(1, props.left + props.right)
-  const lw = (props.left / sum) * 100
-  const rw = (props.right / sum) * 100
-  const lp = Math.round((props.left / sum) * 100)
-  return (
-    <div>
-      <div className="relative flex h-3 overflow-hidden rounded-full bg-slate-200/60 ring-1 ring-slate-300/40">
-        <div className={props.leftClass} style={{ width: `${lw}%`, minWidth: props.left > 0 ? '6px' : undefined }} />
-        <div className={props.rightClass} style={{ width: `${rw}%`, minWidth: props.right > 0 ? '6px' : undefined }} />
-      </div>
-      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-slate-600">
-        <span>
-          {props.leftCaption}: <strong className="tabular-nums text-slate-900">{props.left}</strong>
-          {sum > 0 ? <span className="text-slate-400"> ({lp}%)</span> : null}
-        </span>
-        <span>
-          {props.rightCaption}: <strong className="tabular-nums text-slate-900">{props.right}</strong>
-        </span>
-      </div>
-    </div>
-  )
-}
-
-/** Lista de métricas con barra horizontal (más legible que mini-columnas). */
-function OrdenMiniColumnCompare(props: {
-  items: { label: string; value: number; color: string }[]
-  max: number
-}) {
-  const maxV = Math.max(1, props.max)
-  return (
-    <ul className="mt-3 space-y-2">
-      {props.items.map((it) => {
-        const raw = (it.value / maxV) * 100
-        const w = it.value <= 0 ? 0 : Math.max(raw, 2.5)
-        const display =
-          typeof it.value === 'number' && !Number.isInteger(it.value) ? it.value.toFixed(1) : String(it.value)
-        return (
-          <li
-            key={it.label}
-            className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 shadow-sm ring-1 ring-slate-900/[0.02]"
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 truncate text-[12px] font-medium text-slate-700">{it.label}</span>
-              <span className="shrink-0 text-[12px] font-bold tabular-nums text-slate-900">{display}</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-200/70">
-              <div className={['h-full rounded-full', it.color].join(' ')} style={{ width: `${w}%` }} />
-            </div>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-
 function errMessageFromUnknown(e: unknown): string {
   if (e instanceof Error && e.message) return e.message
   if (e && typeof e === 'object') {
@@ -550,7 +388,7 @@ export type BodegaDeliveryTabId = 'diseno' | 'cnc' | 'maquinado' | 'taller' | 'f
 const LANES_BY_DELIVERY_TAB: Record<BodegaDeliveryTabId, BodegaWorkIntervalLane[]> = {
   diseno: ['orden', 'diseno'],
   cnc: ['cnc_programacion', 'cnc_torno', 'cnc_perfilado'],
-  maquinado: [],
+  maquinado: ['maquina_programacion', 'maquina_torno', 'maquina_perfilado'],
   taller: ['armado'],
   fotos: ['armado'],
   piezas: [],
@@ -576,15 +414,12 @@ function projectDeliveryTabsForRole(role: AppRole, supervisor: boolean) {
 function projectDeliveryTabActiveClass(tab: BodegaDeliveryTabId): string {
   switch (tab) {
     case 'diseno':
-      return 'bg-pink-200 text-pink-950 shadow-md shadow-pink-300/40 ring-2 ring-pink-400/70'
     case 'cnc':
-      return 'bg-programacion-100 text-programacion-900 shadow-md shadow-black/10 ring-1 ring-programacion-300/80'
     case 'maquinado':
-      return 'bg-amber-100 text-amber-950 shadow-md shadow-black/10 ring-1 ring-amber-300/80'
     case 'taller':
-      return 'bg-teal-100 text-teal-950 shadow-md shadow-black/10 ring-1 ring-teal-300/80'
     case 'fotos':
-      return 'bg-emerald-100 text-emerald-950 shadow-md shadow-black/10 ring-1 ring-emerald-300/80'
+    case 'piezas':
+      return 'bg-white text-section-navy shadow-md shadow-black/10 ring-1 ring-white/80'
     default:
       return 'bg-white text-section-navy shadow-md shadow-black/10'
   }
@@ -641,6 +476,8 @@ export function BodegaPage(props: {
   const designClockKeyRef = useRef<string | null>(null)
   const cncClockKeyRef = useRef<string | null>(null)
   const programmerCncAutoTabRef = useRef<string | null>(null)
+  const deliveryWorkspaceRestoredRef = useRef(false)
+  const skipProgrammerAutoTabOnceRef = useRef(false)
   const [programmingFullscreenOpen, setProgrammingFullscreenOpen] = useState(false)
   const [designVersions, setDesignVersions] = useState<ProjectDesignVersionRow[]>([])
   const [piecePhotos, setPiecePhotos] = useState<ProjectPiecePhotoRow[]>([])
@@ -683,6 +520,7 @@ export function BodegaPage(props: {
   /** `${ordenCompraId}:${lineNo}` mientras se crea/abre entregas desde una fila «PDF · partida». */
   const [pdfPartidaBusyKey, setPdfPartidaBusyKey] = useState<string | null>(null)
   const [bodegaNotice, setBodegaNotice] = useState<string | null>(null)
+  const [xtPruebaOpen, setXtPruebaOpen] = useState(false)
   /** Relojes por proyecto para la pestaña Orden (tiempo real por etapa). */
   const [ordenWorkByProject, setOrdenWorkByProject] = useState<Map<string, BodegaWorkIntervalRow[]>>(
     () => new Map(),
@@ -692,8 +530,9 @@ export function BodegaPage(props: {
   >(() => new Map())
   const [ordenTimesLoading, setOrdenTimesLoading] = useState(false)
   const [ordenDetalleOcKey, setOrdenDetalleOcKey] = useState<string | null>(null)
-  const [ordenCerradaDetalleKey, setOrdenCerradaDetalleKey] = useState<string | null>(null)
   const [ordenInfoModalOpen, setOrdenInfoModalOpen] = useState(false)
+  const [ordenTablaFiltro, setOrdenTablaFiltro] = useState<'cerradas' | 'curso' | 'todas'>('cerradas')
+  const [ordenEstadisticasOpen, setOrdenEstadisticasOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createFolio, setCreateFolio] = useState('')
   const [createOrden, setCreateOrden] = useState('')
@@ -784,6 +623,23 @@ export function BodegaPage(props: {
     [designZipPaths, confirmedFolderKeysForApproved],
   )
 
+  const destinosDesignPaths = useMemo(() => {
+    const fromDesign = filterSwPartZipPaths(designZipPaths)
+    const fromPending = filterSwPartZipPaths(pendingReviewPaths)
+    const fromPieces = projectPieces
+      .map((p) => p.source_path)
+      .filter((p): p is string => Boolean(p && filterSwPartZipPaths([p]).length > 0))
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const p of [...fromDesign, ...fromPending, ...fromPieces]) {
+      const key = p.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(p)
+    }
+    return out
+  }, [designZipPaths, pendingReviewPaths, projectPieces])
+
   const confirmedFolderKeysForPanel = useMemo(() => {
     const versionId = pendingDesignReviewVersion?.id ?? primaryApprovedDesignVersion?.id
     if (!versionId) return new Set<string>()
@@ -803,10 +659,11 @@ export function BodegaPage(props: {
     )
   }, [machineVersions])
 
-  const programmingDeliveryReady = useMemo(() => {
-    if (!hasProgrammingDeliveryUpload(machineVersions)) return false
-    return projectPieces.some((p) => p.source_path && isSwPartZipPath(p.source_path))
-  }, [machineVersions, projectPieces])
+  const programmingXtVersion = useMemo(() => {
+    if (isXtDesignVersion(pendingDesignReviewVersion)) return pendingDesignReviewVersion
+    if (isXtDesignVersion(primaryApprovedDesignVersion)) return primaryApprovedDesignVersion
+    return primaryApprovedDesignVersion
+  }, [primaryApprovedDesignVersion, pendingDesignReviewVersion])
 
   const clienteInfoVersions = useMemo(() => {
     return designVersions
@@ -852,13 +709,18 @@ export function BodegaPage(props: {
     programmingRoutesLocked,
   ])
 
+  const deliveryTimesTicking =
+    workIntervals.some((r) => r.ended_at == null) || pieceIntervals.some((r) => r.ended_at == null)
+  const deliveryTimesNow = useLiveClockTick(Boolean(designModalProject) && deliveryTimesTicking)
+
   const projectDeliveryTimes = useMemo(() => {
     if (!designModalProject) return null
     return computeProjectOrdenTimes({
       workIntervals,
       pieceIntervals,
+      nowRef: deliveryTimesNow,
     })
-  }, [designModalProject, workIntervals, pieceIntervals])
+  }, [designModalProject, workIntervals, pieceIntervals, deliveryTimesNow])
 
   const lanesForDeliveryTab = LANES_BY_DELIVERY_TAB[deliveryTab]
 
@@ -977,27 +839,81 @@ export function BodegaPage(props: {
     }
   }
 
-  async function openDesignModal(row: BodegaProjectRow, tab: BodegaDeliveryTabId = 'diseno') {
+  async function maybeStartProgrammingClockForViewer(project: BodegaProjectRow) {
+    if (props.role !== 'programadora_maquinaria') return
+    const st = project.status
+    if (
+      ![
+        'revision_diseno',
+        'diseno_aprobado',
+        'diseno_parcial',
+        'en_programacion',
+        'revision_programacion',
+      ].includes(st)
+    ) {
+      return
+    }
+    try {
+      const pieces = await fetchProjectPieces(project.id)
+      const pending = piecesPendingInCncModule(pieces, 'programacion')
+      if (pending.length === 0) {
+        // Programación ya cerrada: no reabrir el reloj al entrar al proyecto.
+        await closeProgrammingOfficeClockIfComplete({ projectId: project.id, pieces })
+        const iv = await fetchWorkIntervals(project.id)
+        setWorkIntervals(iv)
+        return
+      }
+      await startWorkInterval(project.id, 'cnc_programacion')
+      const iv = await fetchWorkIntervals(project.id)
+      setWorkIntervals(iv)
+    } catch {
+      /* reloj idempotente; si falla no bloquea el panel */
+    }
+  }
+
+  async function openDesignModal(
+    row: BodegaProjectRow,
+    tab: BodegaDeliveryTabId = 'diseno',
+    opts?: { cncModuleTab?: CncModuleKind; preserveTab?: boolean },
+  ) {
     const allowed = projectDeliveryTabsForRole(props.role, isBodegaSupervisorFull)
-    let preferredTab: BodegaDeliveryTabId | BodegaHubSection | null = tab
-    if (tab === 'diseno') {
-      const uid = (await getSupabase().auth.getUser()).data.user?.id
-      const stored = uid ? readStoredBodegaSection(uid) : null
-      if (stored) preferredTab = stored
+    let preferredTab: BodegaDeliveryTabId = tab
+    const uid = (await getSupabase().auth.getUser()).data.user?.id
+    // Al reabrir el mismo proyecto (o restaurar sesión), conservar la pestaña guardada.
+    if (tab === 'diseno' || opts?.preserveTab) {
+      const stored = uid ? readStoredBodegaDeliveryWorkspace(uid) : null
+      if (stored?.projectId === row.id && allowed.some(([id]) => id === stored.tab)) {
+        preferredTab = stored.tab as BodegaDeliveryTabId
+        if (!opts?.cncModuleTab && stored.cncModuleTab) {
+          opts = { ...opts, cncModuleTab: stored.cncModuleTab }
+        }
+      }
     }
     const initialTab = allowed.some(([id]) => id === preferredTab)
-      ? (preferredTab as BodegaDeliveryTabId)
+      ? preferredTab
       : (allowed[0]?.[0] ?? 'diseno')
+    if (opts?.preserveTab) {
+      skipProgrammerAutoTabOnceRef.current = true
+      programmerCncAutoTabRef.current = row.id
+    }
     setDesignModalProject(row)
     setDesignModalProjectInfoOpen(false)
     setProgrammingFullscreenOpen(false)
-    setCncModuleTab('programacion')
+    setCncModuleTab(opts?.cncModuleTab ?? 'programacion')
     setDeliveryTab(initialTab)
     setDesignCommentDraft('')
     setBodegaNotice(null)
     setManualAvanceInput(String(Math.min(100, Math.max(0, Number(row.avance_pct) || 0))))
+    if (uid) {
+      writeStoredBodegaDeliveryWorkspace(uid, {
+        projectId: row.id,
+        tab: initialTab,
+        cncModuleTab: opts?.cncModuleTab ?? 'programacion',
+      })
+    }
     await loadProjectDeliveries(row.id)
     await maybeStartDesignClockForViewer(row)
+    await maybeStartProgrammingClockForViewer(row)
   }
 
   function closeDesignModal() {
@@ -1005,6 +921,10 @@ export function BodegaPage(props: {
     setProgrammingFullscreenOpen(false)
     setDesignModalProjectInfoOpen(false)
     setDesignModalProject(null)
+    void (async () => {
+      const uid = (await getSupabase().auth.getUser()).data.user?.id
+      if (uid) clearStoredBodegaDeliveryWorkspace(uid)
+    })()
   }
 
   useEffect(() => {
@@ -1015,6 +935,53 @@ export function BodegaPage(props: {
     }
   }, [designModalProject])
 
+  // Persistir proyecto + pestaña para no salir al cambiar de pantalla / recargar.
+  useEffect(() => {
+    if (!designModalProject) return
+    let cancelled = false
+    void (async () => {
+      const uid = (await getSupabase().auth.getUser()).data.user?.id
+      if (cancelled || !uid) return
+      writeStoredBodegaDeliveryWorkspace(uid, {
+        projectId: designModalProject.id,
+        tab: deliveryTab,
+        cncModuleTab,
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [designModalProject?.id, deliveryTab, cncModuleTab])
+
+  // Al montar / volver: restaurar el proyecto y la sección donde estabas.
+  useEffect(() => {
+    if (deliveryWorkspaceRestoredRef.current) return
+    if (props.deliveryJumpRequest) return
+    if (loading || designModalProject) return
+    if (rows.length === 0) return
+    deliveryWorkspaceRestoredRef.current = true
+    let cancelled = false
+    void (async () => {
+      const uid = (await getSupabase().auth.getUser()).data.user?.id
+      if (cancelled || !uid) return
+      const stored = readStoredBodegaDeliveryWorkspace(uid)
+      if (!stored) return
+      const row = rows.find((r) => r.id === stored.projectId)
+      if (!row) {
+        clearStoredBodegaDeliveryWorkspace(uid)
+        return
+      }
+      await openDesignModal(row, stored.tab as BodegaDeliveryTabId, {
+        cncModuleTab: stored.cncModuleTab,
+        preserveTab: true,
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restore once when project list is ready
+  }, [loading, rows, designModalProject, props.deliveryJumpRequest])
+
   useEffect(() => {
     props.onProjectDeliveryScreenOpen?.(designModalProject != null)
     return () => props.onProjectDeliveryScreenOpen?.(false)
@@ -1024,6 +991,11 @@ export function BodegaPage(props: {
     if (!designModalProject) return
     const pid = designModalProject.id
     if (!programmingRoutesLocked || !canUploadBodegaMachine(props.role)) return
+    if (skipProgrammerAutoTabOnceRef.current) {
+      skipProgrammerAutoTabOnceRef.current = false
+      programmerCncAutoTabRef.current = pid
+      return
+    }
     if (programmerCncAutoTabRef.current === pid) return
     programmerCncAutoTabRef.current = pid
     const modules = programmerCncModulesWithPieces(projectPieces)
@@ -1101,6 +1073,36 @@ export function BodegaPage(props: {
   ])
 
   useEffect(() => {
+    if (!designModalProject) return
+    const xtReady =
+      isXtDesignVersion(primaryApprovedDesignVersion) || isXtDesignVersion(pendingDesignReviewVersion)
+    if (!xtReady) return
+    const paths = destinosDesignPaths
+    if (paths.length === 0) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const sync = await syncProjectPiecesFromDesignPathsDetailed(designModalProject.id, paths, {
+          swPartOnly: true,
+        })
+        if (cancelled || sync.added === 0) return
+        const pieces = await fetchProjectPieces(designModalProject.id)
+        if (!cancelled) setProjectPieces(pieces)
+      } catch {
+        /* la asignación aún puede usar las rutas del ensamble */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    designModalProject?.id,
+    primaryApprovedDesignVersion?.id,
+    pendingDesignReviewVersion?.id,
+    destinosDesignPaths,
+  ])
+
+  useEffect(() => {
     if (!programmingRoutesLocked || !canUploadBodegaMachine(props.role)) return
     if (cncModuleTab === 'perfilado') return
     const modules = programmerCncModulesWithPieces(projectPieces)
@@ -1113,7 +1115,8 @@ export function BodegaPage(props: {
     if (!designModalProject || deliveryTab !== 'cnc') return
     if (props.role !== 'programadora_maquinaria') return
     if (!step3FolderStatus.complete) return
-    if (programmingDeliveryReady) return
+    const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
+    if (pendingProg.length === 0) return
     const lane: BodegaWorkIntervalLane = 'cnc_programacion'
     const key = `${designModalProject.id}:${lane}:delivery`
     if (cncClockKeyRef.current === key) return
@@ -1132,14 +1135,15 @@ export function BodegaPage(props: {
     deliveryTab,
     props.role,
     step3FolderStatus.complete,
-    programmingDeliveryReady,
+    projectPieces,
   ])
 
   useEffect(() => {
     if (!designModalProject || deliveryTab !== 'cnc') return
     if (props.role !== 'programadora_maquinaria') return
     if (!programmingRoutesLocked) return
-    if (programmingDeliveryReady) return
+    const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
+    if (pendingProg.length === 0) return
     const lane: BodegaWorkIntervalLane =
       cncModuleTab === 'torno' ? 'cnc_torno' : 'cnc_programacion'
     const key = `${designModalProject.id}:${lane}:routes`
@@ -1148,24 +1152,66 @@ export function BodegaPage(props: {
     void (async () => {
       try {
         await startWorkInterval(designModalProject.id, lane)
+        const iv = await fetchWorkIntervals(designModalProject.id)
+        setWorkIntervals(iv)
       } catch {
         cncClockKeyRef.current = null
       }
     })()
-  }, [designModalProject?.id, deliveryTab, cncModuleTab, props.role, programmingRoutesLocked, programmingDeliveryReady])
+  }, [designModalProject?.id, deliveryTab, cncModuleTab, props.role, programmingRoutesLocked, projectPieces])
 
-  async function onProgrammerRoutesConfirmed() {
+  /** Cuando ya no hay piezas CNC por programar, cierra el reloj de oficina (y no lo reabre). */
+  useEffect(() => {
+    if (!designModalProject) return
+    if (props.role !== 'programadora_maquinaria' && !canManageBodegaLikeAdmin(props.role)) return
+    if (projectPieces.length === 0) return
+    const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
+    if (pendingProg.length > 0) return
+    const hasOpen = workIntervals.some(
+      (r) => (r.lane === 'cnc_programacion' || r.lane === 'cnc_torno') && !r.ended_at,
+    )
+    if (!hasOpen) {
+      cncClockKeyRef.current = null
+      return
+    }
+    const pid = designModalProject.id
+    let cancelled = false
+    void (async () => {
+      try {
+        await closeProgrammingOfficeClockIfComplete({ projectId: pid, pieces: projectPieces })
+        if (cancelled) return
+        cncClockKeyRef.current = null
+        const iv = await fetchWorkIntervals(pid)
+        if (!cancelled) setWorkIntervals(iv)
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    designModalProject?.id,
+    projectPieces,
+    workIntervals,
+    props.role,
+  ])
+
+  async function onDesignDestinosConfirmed() {
     const pid = designModalProject!.id
     await loadProjectDeliveries(pid)
     const pieces = await fetchProjectPieces(pid)
     const meta = await fetchProjectPieceFlowMeta(pid)
     setProjectPieces(pieces)
     setPieceFlowMeta(meta)
-    const modules = programmerCncModulesWithPieces(pieces)
-    setCncModuleTab(modules[0] ?? 'programacion')
-    setDeliveryTab('cnc')
-    setBodegaNotice('Asignación confirmada. Registra tiempos por pieza en la pantalla de programación.')
-    setProgrammingFullscreenOpen(true)
+    const cnc = piecesForCncModule(pieces, 'programacion')
+    setCncModuleTab(cnc.length > 0 ? 'programacion' : 'programacion')
+    if (cnc.length > 0) {
+      setDeliveryTab('cnc')
+      setBodegaNotice('Destinos confirmados. Programación solo recibe CNC; torno y perfiladora salen sin tiempo.')
+    } else {
+      setBodegaNotice('Destinos confirmados. No hay piezas CNC; torno, perfiladora y accesorios salen sin tiempo.')
+    }
   }
 
   useEffect(() => {
@@ -1193,14 +1239,14 @@ export function BodegaPage(props: {
   async function downloadDesignZip(v: ProjectDesignVersionRow) {
     const url = await createSignedUrlForDesignZip(v.zip_storage_path)
     if (url) window.open(url, '_blank', 'noopener,noreferrer')
-    else setError('No se pudo generar el enlace del ZIP.')
+    else setError('No se pudo generar el enlace de descarga.')
   }
 
-  async function executeDesignZipUpload(file: File) {
+  async function executeDesignZipUpload(file: File, planos: File[] = []) {
     if (!designModalProject) return
     if (!canUploadDesign) return
     setDesignUploadBusy(true)
-    setDesignUploadPhase('Subiendo ZIP…')
+    setDesignUploadPhase('Subiendo entrega…')
     setError(null)
     const st = designModalProject.status
     const entregaRows = designVersions.filter((x) => (x.package_category ?? 'entrega_diseno') === 'entrega_diseno')
@@ -1225,13 +1271,35 @@ export function BodegaPage(props: {
         uploadOrigin: 'bodega_entregas',
       })
 
+      let planoNotice = ''
+      if (isXtDesignFile(file) && planos.length > 0) {
+        setDesignUploadPhase('Vinculando planos…')
+        const parsed = await parseXtFile(file)
+        const pieceNames = parsed.pieces.map((p) => p.name)
+        const auto = await applyDesignPlanosAutoAssign({
+          projectId: designModalProject.id,
+          projectFolio: designModalProject.folio,
+          pieceNames,
+          planos,
+          onPhase: (p) => setDesignUploadPhase(p),
+        })
+        const parts: string[] = []
+        if (auto.linked.length > 0) {
+          parts.push(`${auto.linked.length} plano(s) vinculados a piezas`)
+        }
+        if (auto.unmatched.length > 0) {
+          parts.push(`sin coincidencia: ${auto.unmatched.join(', ')}`)
+        }
+        if (parts.length > 0) planoNotice = ` ${parts.join('. ')}.`
+      }
+
       await refreshModalProjectFromServer(designModalProject.id)
       await loadProjectDeliveries(designModalProject.id)
       setDesignCommentDraft('')
       setBodegaNotice(
-        esCorreccionUpload
-          ? 'ZIP de corrección subido. El reloj de esta ronda se cerró; el supervisor revisará las piezas incluidas.'
-          : 'Entrega de diseño subida. El reloj de diseño se cerró mientras el supervisor revisa.',
+        (esCorreccionUpload
+          ? 'Corrección entregada. El reloj de esta ronda se pausó; el supervisor revisará las piezas del .x_t.'
+          : 'Ensamble .x_t entregado. El reloj de diseño se pausó mientras el supervisor revisa.') + planoNotice,
       )
       props.onBodegaDeliveriesChanged?.()
     } catch (e) {
@@ -1242,9 +1310,13 @@ export function BodegaPage(props: {
     }
   }
 
-  async function uploadDesignZip(file: File) {
+  async function uploadDesignZip(file: File, planos: File[] = []) {
     if (!designModalProject) return
     if (!canUploadDesign) return
+    if (isXtDesignFile(file)) {
+      await executeDesignZipUpload(file, planos)
+      return
+    }
     setDesignUploadBusy(true)
     setDesignUploadPhase('Analizando ZIP…')
     setError(null)
@@ -1323,6 +1395,12 @@ export function BodegaPage(props: {
       if (args.reject) {
         setBodegaNotice('Entrega devuelta a la diseñadora.')
       } else {
+        void notifyDesignerDesignEntregaConfirmada({
+          projectId: designModalProject.id,
+          designVersionId: args.version.id,
+          filename: args.version.zip_filename,
+          version: args.version.version,
+        })
         const paths = await resolveDesignVersionEntryPaths(args.version)
         const folderRows = await fetchDesignConfirmedFolders(designModalProject.id)
         const keys = confirmedFolderKeySetForVersion(folderRows, args.version.id)
@@ -1335,9 +1413,9 @@ export function BodegaPage(props: {
             })
           }
           await refreshModalProjectFromServer(designModalProject.id)
-          setBodegaNotice('Todas las carpetas confirmadas. Proyecto en programación.')
+          setBodegaNotice('Todas las carpetas confirmadas. Proyecto en programación. Se avisó a la diseñadora.')
         } else {
-          setBodegaNotice(`Carpetas confirmadas (${result.confirmedCount}). Faltan ${st3.totalFolders - st3.confirmedCount}.`)
+          setBodegaNotice(`Carpetas confirmadas (${result.confirmedCount}). Faltan ${st3.totalFolders - st3.confirmedCount}. Se avisó a la diseñadora.`)
         }
       }
       props.onBodegaDeliveriesChanged?.()
@@ -1807,7 +1885,6 @@ export function BodegaPage(props: {
   useEffect(() => {
     if (folder !== 'orden') {
       setOrdenDetalleOcKey(null)
-      setOrdenCerradaDetalleKey(null)
       setOrdenInfoModalOpen(false)
       return
     }
@@ -2329,6 +2406,79 @@ export function BodegaPage(props: {
       return blob.includes(s)
     })
   }, [ordenOcEnCursoCards, q, filterOrdenCompraId])
+
+  /** Una sola lista de órdenes para la tabla de la pestaña Orden: cerradas y en curso juntas. */
+  const ordenTablaFilas = useMemo(() => {
+    const proyectosDe = (items: BodegaProjectRow[]) =>
+      items.map((r) => ({
+        id: r.id,
+        folio: r.folio,
+        pct: clampPct(r.avance_pct),
+        estadoLabel: statusLabel(r.status),
+        estadoTone: statusTone(r.status),
+        prioridadNivel: r.prioridadNivel,
+        times: ordenTimesPorProject.get(r.id) ?? sumOrdenTimeBreakdowns([]),
+      }))
+
+    const cerradas: OrdenTablaFila[] = ordenInformeFiltrado.map((c) => ({
+      key: c.key,
+      numero: c.numero,
+      empresaNombre: c.empresaNombre,
+      solicitante: c.solicitante,
+      nTotal: c.nProyectos,
+      nDone: c.nProyectos,
+      avgPct: 100,
+      times: ordenTimesPorOc.get(c.key) ?? sumOrdenTimeBreakdowns([]),
+      cerrada: true,
+      cierreTexto: formatDateTimeEs(c.fechaCierre),
+      diasPromedio: c.diasPromedio,
+      tienePartidas: !!c.oc && cotizacionLineasValidas(c.oc.cotizacion_lineas).length > 0,
+      proyectos: proyectosDe((ordenGrupoTodos.get(c.key) ?? []).slice().sort(cmpPrioridadFolio)),
+    }))
+
+    const enCurso: OrdenTablaFila[] = ordenOcEnCursoFiltradas.map((c) => ({
+      key: c.key,
+      numero: c.numero,
+      empresaNombre: c.empresaNombre,
+      solicitante: c.solicitante,
+      nTotal: c.nTotal,
+      nDone: c.nDone,
+      avgPct: c.avgPct,
+      times: c.times,
+      cerrada: false,
+      cierreTexto: null,
+      diasPromedio: 0,
+      tienePartidas: !!c.oc && cotizacionLineasValidas(c.oc.cotizacion_lineas).length > 0,
+      proyectos: proyectosDe(c.items),
+    }))
+
+    if (ordenTablaFiltro === 'cerradas') return cerradas
+    if (ordenTablaFiltro === 'curso') return enCurso
+    return [...enCurso, ...cerradas]
+  }, [
+    ordenInformeFiltrado,
+    ordenOcEnCursoFiltradas,
+    ordenGrupoTodos,
+    ordenTimesPorOc,
+    ordenTimesPorProject,
+    ordenTablaFiltro,
+  ])
+
+  /** Abre el modal de partidas desde la tabla, buscando la OC del grupo. */
+  const abrirPartidasDeGrupo = useCallback(
+    (key: string) => {
+      const ocId = key.startsWith('oc:') ? key.slice(3) : ''
+      const oc = ocId ? ordenById.get(ocId) ?? null : null
+      if (oc) setPartidasModalOc(oc)
+    },
+    [ordenById],
+  )
+
+  /** Tiempo de reloj acumulado en todos los proyectos, para el resumen de arriba. */
+  const ordenTiempoTotal = useMemo(
+    () => sumOrdenTimeBreakdowns([...ordenTimesPorProject.values()]),
+    [ordenTimesPorProject],
+  )
 
   /** Si aún no hay proyectos en app, agrupa órdenes por empresa para la pestaña Cliente. */
   const clienteEmpresaSoloOrdenes = useMemo(() => {
@@ -2859,7 +3009,6 @@ export function BodegaPage(props: {
     if (!designModalProject) return null
     const deliveryStatusLabel =
       projectPipelineDisplay?.statusLabel ?? statusLabel(designModalProject.status)
-    const deliveryAvancePct = projectPipelineDisplay?.avancePct ?? designModalProject.avance_pct
     const pipelineOperationalProps = projectPipelineDisplay
       ? {
           operationalAvancePct: projectPipelineDisplay.avancePct,
@@ -2877,7 +3026,6 @@ export function BodegaPage(props: {
           folio={designModalProject.folio}
           projectName={designModalProject.nombre}
           statusLabel={deliveryStatusLabel}
-          avancePct={deliveryAvancePct}
           onClose={closeDesignModal}
           headerActions={
             <>
@@ -3052,6 +3200,21 @@ export function BodegaPage(props: {
                     onModuleChange={(m) => setCncModuleTab(m)}
                     onReload={async () => {
                       await loadProjectDeliveries(designModalProject.id)
+                      const pieces = await fetchProjectPieces(designModalProject.id)
+                      setProjectPieces(pieces)
+                      try {
+                        const closed = await closeProgrammingOfficeClockIfComplete({
+                          projectId: designModalProject.id,
+                          pieces,
+                        })
+                        if (closed) {
+                          cncClockKeyRef.current = null
+                          const iv = await fetchWorkIntervals(designModalProject.id)
+                          setWorkIntervals(iv)
+                        }
+                      } catch {
+                        /* ignore */
+                      }
                     }}
                   />
                 </BodegaProgrammerProgrammingFullscreen>
@@ -3099,6 +3262,10 @@ export function BodegaPage(props: {
                   pieces={projectPieces}
                   flowMeta={pieceFlowMeta}
                   piecePhotosCount={piecePhotos.length}
+                  photos={piecePhotos}
+                  canUploadPhotos={canUploadPiecePhotos && !pieceFlowMeta?.project_finalized_at}
+                  photoUploadBusy={photoUploadBusy}
+                  onUploadPhotos={uploadPiecePhotosForPiece}
                   approvedDesign={
                     approvedDesignEntregaVersionsList.length > 0
                       ? {
@@ -3120,13 +3287,6 @@ export function BodegaPage(props: {
 
               {deliveryTab === 'diseno' && !designLoading && designModalProject ? (
                 <>
-                  <BodegaDeliverySectionTimeStrip
-                    tab="diseno"
-                    times={projectDeliveryTimes}
-                    loading={designLoading}
-                    workIntervals={workIntervals}
-                    pieceIntervals={pieceIntervals}
-                  />
                 <BodegaDisenoWorkspace
                   role={props.role}
                   projectStatus={designModalProject.status}
@@ -3135,11 +3295,15 @@ export function BodegaPage(props: {
                   designUploadPhase={designUploadPhase}
                   designEntregaVersions={designEntregaVersions}
                   clienteInfoVersions={clienteInfoVersions}
-                  onUploadDesign={(f) => void uploadDesignZip(f)}
+                  onUploadDesign={(f, planos) => void uploadDesignZip(f, planos)}
                   onDownload={(v) => void downloadDesignZip(v)}
                   formatDateTime={(d) => formatDateTimeEs(d)}
-                  step3Complete={step3FolderStatus.complete}
-                  showPlanosStep={false}
+                  destinosComplete={programmingRoutesLocked}
+                  showPlanosStep={
+                    projectPieces.some(
+                      (p) => p.programmer_bucket === 'torno' || p.programmer_bucket === 'perfilado',
+                    )
+                  }
                   clockPanel={
                     <BodegaProjectClockPanel
                       embedded
@@ -3158,6 +3322,8 @@ export function BodegaPage(props: {
                           : undefined
                       }
                       workIntervals={workIntervals}
+                      hideOrdenClock
+                      idleClockHint="Se inicia al entrar al proyecto"
                       designContratiempoNotes={pieceFlowMeta?.design_contratiempo_notes ?? null}
                       onReloadMeta={async () => {
                         const meta = await fetchProjectPieceFlowMeta(designModalProject.id)
@@ -3178,8 +3344,31 @@ export function BodegaPage(props: {
                         designZipPathsLoading={designZipPathsLoading}
                         confirmedFolderKeys={confirmedFolderKeysForPanel}
                         confirmBusy={designReviewBusy}
+                        pieces={projectPieces}
                         onDownloadZip={(v) => void downloadDesignZip(v)}
                         onConfirmFolders={(args) => void confirmDesignFoldersForProject(args)}
+                      />
+                    ) : null
+                  }
+                  destinosPanel={
+                    destinosDesignPaths.length > 0 || projectPieces.length > 0 ? (
+                      <BodegaDisenoDestinosPanel
+                        role={props.role}
+                        projectId={designModalProject.id}
+                        projectFolio={designModalProject.folio}
+                        pieces={projectPieces}
+                        designPaths={destinosDesignPaths}
+                        routesLocked={programmingRoutesLocked}
+                        designConfirmed={
+                          ['diseno_aprobado', 'diseno_parcial', 'en_programacion', 'revision_programacion', 'terminado'].includes(
+                            designModalProject.status,
+                          ) && pendingDesignReviewVersion == null
+                        }
+                        onReload={async () => {
+                          await loadProjectDeliveries(designModalProject.id)
+                          await refreshModalProjectFromServer(designModalProject.id)
+                        }}
+                        onConfirmed={() => void onDesignDestinosConfirmed()}
                       />
                     ) : null
                   }
@@ -3202,13 +3391,6 @@ export function BodegaPage(props: {
 
               {deliveryTab === 'cnc' && !designLoading && designModalProject ? (
                 <>
-                  <BodegaDeliverySectionTimeStrip
-                    tab="cnc"
-                    times={projectDeliveryTimes}
-                    loading={designLoading}
-                    workIntervals={workIntervals}
-                    pieceIntervals={pieceIntervals}
-                  />
                 <BodegaProgramacionWorkspace
                   role={props.role}
                   projectStatus={designModalProject.status}
@@ -3218,21 +3400,18 @@ export function BodegaPage(props: {
                       designModalProject.status,
                     ) && step3FolderStatus.complete
                   }
-                  assignmentComplete={isSwPartsAssignmentComplete(projectPieces)}
-                  hasCncOrTornoPieces={
-                    piecesForCncModule(projectPieces, 'programacion').length > 0 ||
-                    piecesForCncModule(projectPieces, 'torno').length > 0
-                  }
+                  assignmentComplete={isSwPartsAssignmentComplete(projectPieces, destinosDesignPaths)}
+                  hasCncOrTornoPieces={piecesForCncModule(projectPieces, 'programacion').length > 0}
                   allProgrammingFinished={(() => {
-                    const cncTorno = [
-                      ...piecesForCncModule(projectPieces, 'programacion'),
-                      ...piecesForCncModule(projectPieces, 'torno'),
-                    ]
-                    return cncTorno.length > 0 && cncTorno.every((p) => Boolean(p.programming_finished_at))
+                    const cnc = piecesForCncModule(projectPieces, 'programacion')
+                    if (programmingRoutesLocked && cnc.length === 0) return true
+                    if (cnc.length === 0) return false
+                    return piecesPendingInCncModule(projectPieces, 'programacion').length === 0
                   })()}
                   cncModuleTab={cncModuleTab}
                   cncModuleTabsVisible={cncModuleTabsVisible}
                   onCncModuleTabChange={setCncModuleTab}
+                  workIntervals={workIntervals}
                   deliveryPanel={
                     canUploadBodegaMachine(props.role) || canManageBodegaLikeAdmin(props.role) ? (
                       <BodegaProgrammerDeliveryPanel
@@ -3240,43 +3419,29 @@ export function BodegaPage(props: {
                         projectFolio={designModalProject.folio}
                         foldersConfirmed={step3FolderStatus.complete}
                         hasDelivery={hasProgrammingDeliveryUpload(machineVersions)}
-                        designVersion={primaryApprovedDesignVersion}
+                        designVersion={programmingXtVersion}
                         latestDelivery={latestProgrammingDelivery}
                         uploadBusy={programmingUploadBusy}
                         uploadPhase={programmingUploadPhase}
                         onDownloadDesign={() => {
-                          if (primaryApprovedDesignVersion) void downloadDesignZip(primaryApprovedDesignVersion)
+                          if (programmingXtVersion) void downloadDesignZip(programmingXtVersion)
                         }}
                         onUploadProgrammingZip={(file, comment) => uploadProgrammingDelivery(file, comment)}
                       />
                     ) : null
                   }
                   assignmentPanel={
-                    programmingDeliveryReady &&
-                    (canUploadBodegaMachine(props.role) || canManageBodegaLikeAdmin(props.role)) ? (
-                      <BodegaProgrammerStep4Panel
-                        embedded
-                        role={props.role}
-                        projectId={designModalProject.id}
-                        projectFolio={designModalProject.folio}
-                        projectStatus={designModalProject.status}
-                        pieces={projectPieces}
-                        routesLocked={programmingRoutesLocked}
-                        foldersConfirmed={step3FolderStatus.complete}
-                        programmingDeliveryReady={programmingDeliveryReady}
-                        approvedDesign={{
-                          version: approvedDesignZipSummaryInfo.version,
-                          zipFilename: approvedDesignZipSummaryInfo.zipFilename,
-                          paths: effectiveDesignZipPaths,
-                          pathsLoading: designZipPathsLoading,
-                          pathsError: designZipPathsError,
-                        }}
-                        onReload={async () => {
-                          await loadProjectDeliveries(designModalProject.id)
-                          await refreshModalProjectFromServer(designModalProject.id)
-                        }}
-                        onRoutesConfirmed={() => void onProgrammerRoutesConfirmed()}
-                      />
+                    !programmingRoutesLocked ? (
+                      <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-4 text-[13px] leading-relaxed text-sky-950">
+                        <strong>Los destinos los pone diseño.</strong> En la pestaña <strong>Diseño</strong> la
+                        diseñadora dirige cada pieza a CNC, torno o perfiladora. Torno y perfiladora salen sin tiempo,
+                        igual que los accesorios. Cuando confirme, aquí solo verás CNC para programar.
+                      </div>
+                    ) : piecesForCncModule(projectPieces, 'programacion').length === 0 ? (
+                      <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-[13px] leading-relaxed text-slate-700">
+                        Destinos confirmados. Este proyecto no tiene piezas CNC: torno, perfiladora y accesorios ya
+                        salieron sin tiempo de programación.
+                      </div>
                     ) : null
                   }
                   programmingPanel={
@@ -3295,21 +3460,36 @@ export function BodegaPage(props: {
                         onOpenFullscreen={() => setProgrammingFullscreenOpen(true)}
                         onReload={async () => {
                           await loadProjectDeliveries(designModalProject.id)
+                          const pieces = await fetchProjectPieces(designModalProject.id)
+                          setProjectPieces(pieces)
+                          try {
+                            const closed = await closeProgrammingOfficeClockIfComplete({
+                              projectId: designModalProject.id,
+                              pieces,
+                            })
+                            if (closed) {
+                              cncClockKeyRef.current = null
+                              const iv = await fetchWorkIntervals(designModalProject.id)
+                              setWorkIntervals(iv)
+                            }
+                          } catch {
+                            /* ignore */
+                          }
                         }}
                       />
                     ) : null
                   }
                   timesPanel={
                     lanesForDeliveryTab.length > 0 ? (
-                      <ul className="divide-y divide-programacion-100 rounded-xl border border-programacion-200/80 bg-white">
+                      <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
                         {orderedLaneLabels()
                           .filter(({ lane }) => lanesForDeliveryTab.includes(lane))
                           .map(({ lane, label }) => {
                             const mins = workMinutesByLane.get(lane) ?? 0
                             return (
                               <li key={lane} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                                <span className="text-[13px] text-programacion-950/90">{label}</span>
-                                <span className="font-mono text-[13px] font-semibold tabular-nums text-programacion-950">
+                                <span className="text-[13px] text-slate-700">{label}</span>
+                                <span className="font-mono text-[13px] font-semibold tabular-nums text-section-navy">
                                   {formatWorkMinutesShort(mins)}
                                 </span>
                               </li>
@@ -3342,8 +3522,8 @@ export function BodegaPage(props: {
                     />
                   ) : (
                     <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-[14px] text-amber-950">
-                      Confirma la asignación CNC/Torno en la pestaña <strong>Programación</strong> y termina el archivo
-                      de cada pieza para registrar maquinado aquí.
+                      Confirma los destinos en la pestaña <strong>Diseño</strong> (CNC / torno / perfiladora). Solo las
+                      piezas CNC llegan a maquinado cuando el archivo de programación está listo.
                     </section>
                   )}
                 </div>
@@ -3398,13 +3578,13 @@ export function BodegaPage(props: {
                   />
 
                   {canUploadMachine && !pieceFlowMeta?.project_finalized_at ? (
-                    <section className="overflow-hidden rounded-2xl border border-programacion-200 bg-gradient-to-br from-programacion-50/95 to-white p-5 shadow-sm ring-1 ring-programacion-900/[0.06] sm:p-6">
-                      <p className="text-[15px] font-bold text-programacion-950">Programadora — solicitar revisión</p>
-                      <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-programacion-950/90">
-                        Solo cuando <strong>todas</strong> las piezas del proyecto tengan detallado terminado en Taller
-                        puedes solicitar cierre ({projectClosureProgress.detalladoDone}/
-                        {projectClosureProgress.totalPieces} piezas listas). El supervisor finaliza el proyecto en el
-                        bloque de arriba cuando cada pieza tenga foto.
+                    <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white p-5 shadow-sm ring-1 ring-slate-900/[0.04] sm:p-6">
+                      <p className="text-[15px] font-bold text-section-navy">Programadora — solicitar revisión</p>
+                      <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-700">
+                        Cuando <strong>todas</strong> las piezas estén listas para foto (CNC con detallado; torno,
+                        perfilado y accesorios al asignarlos en diseño) puedes solicitar cierre (
+                        {projectClosureProgress.detalladoDone}/{projectClosureProgress.totalPieces} listas). El
+                        supervisor finaliza arriba cuando cada pieza tenga foto.
                       </p>
                       <button
                         type="button"
@@ -3418,10 +3598,10 @@ export function BodegaPage(props: {
                         }
                         title={
                           !canProgramadoraSolicitarCierre(projectPieces)
-                            ? `Faltan ${projectClosureProgress.totalPieces - projectClosureProgress.detalladoDone} pieza(s) por terminar detallado`
+                            ? `Faltan ${projectClosureProgress.totalPieces - projectClosureProgress.detalladoDone} pieza(s) por completar (CNC en taller)`
                             : undefined
                         }
-                        className="mt-5 min-h-[48px] rounded-xl bg-programacion-600 px-6 py-3 text-[14px] font-bold text-white shadow-md transition hover:bg-programacion-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="mt-5 min-h-[48px] rounded-xl bg-section-navy px-6 py-3 text-[14px] font-bold text-white shadow-md transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => void onProgramadoraSolicitaCierre()}
                       >
                         {closureBusy ? 'Enviando…' : 'Solicitar revisión de cierre'}
@@ -3570,9 +3750,7 @@ export function BodegaPage(props: {
                   <option value="terminado">Terminado</option>
                 </select>
               ) : folder === 'orden' ? (
-                <span className="hidden text-[12px] text-slate-500 sm:inline">
-                  OC en curso + cerradas · diseño y programación según actividad
-                </span>
+                <span className="hidden text-[12px] text-slate-500 sm:inline">Órdenes cerradas, avance y tiempos</span>
               ) : (
                 <span className="hidden text-[12px] text-slate-500 sm:inline">Vista de órdenes de compra</span>
               )}
@@ -3600,6 +3778,15 @@ export function BodegaPage(props: {
                   onClick={() => openUpload()}
                 >
                   Adjuntar orden (PDF)
+                </button>
+              ) : null}
+              {isBodegaSupervisorFull ? (
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  onClick={() => setXtPruebaOpen(true)}
+                >
+                  Probar .x_t
                 </button>
               ) : null}
               {isBodegaSupervisorFull ? (
@@ -4210,585 +4397,54 @@ export function BodegaPage(props: {
               </div>
             )
           ) : folder === 'orden' ? (
-            <div className="space-y-6 px-1 pb-4 pt-1 sm:px-2">
-              <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_12px_40px_-24px_rgba(15,23,42,0.12)] ring-1 ring-slate-900/[0.03]">
-                <div className="border-b border-slate-200/80 bg-section-navy px-4 py-4 text-white sm:px-5 sm:py-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-sky-200/95">Pestaña Orden</p>
-                      <h3 className="mt-1 text-lg font-bold tracking-tight sm:text-xl">
-                        Tiempos por etapa (reloj real) y avance %
-                      </h3>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
-                      <button
-                        type="button"
-                        className="rounded-lg border border-white/35 bg-white/10 px-3 py-2 text-left text-[12px] font-semibold text-white shadow-sm transition hover:bg-white/20 sm:text-right"
-                        onClick={() => setOrdenInfoModalOpen(true)}
-                      >
-                        Información de esta vista
-                      </button>
-                      {ordenTimesLoading ? (
-                        <span className="rounded-full border border-white/30 bg-white/15 px-3 py-1 text-center text-[11px] font-semibold text-white sm:text-right">
-                          Cargando tiempos…
-                        </span>
-                      ) : null}
-                      <span className="rounded-full border border-amber-300/50 bg-amber-500/25 px-3 py-1.5 text-center text-[11px] font-bold text-amber-100 sm:text-right">
-                        Horario: lun–vie 8:00–17:30
-                      </span>
-                      <OrdenTimeLegend compact />
-                    </div>
-                  </div>
-                </div>
-                <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 sm:p-5">
-                  <div className="rounded-2xl border border-sky-200/80 bg-sky-50/90 p-3.5 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-sky-900/80">1 · Horario hábil</p>
-                    <p className="mt-1.5 text-[12px] leading-snug text-slate-700">
-                      Solo cuentan minutos entre <strong>8:00 y 17:30</strong> en días laborables. Fuera de ese horario no suman.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-violet-200/80 bg-violet-50/90 p-3.5 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-violet-900/80">2 · Reloj por proyecto</p>
-                    <p className="mt-1.5 text-[12px] leading-snug text-slate-700">
-                      Cada folio acumula tiempo <strong>solo cuando alguien inicia el reloj</strong> en ese proyecto (diseño, CNC,
-                      piezas en taller). Si trabajas dos proyectos a la vez, cada uno lleva su propio contador.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-programacion-200/80 bg-programacion-50/90 p-3.5 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-programacion-950/85">3 · Etapas medidas</p>
-                    <p className="mt-1.5 text-[12px] leading-snug text-slate-700">
-                      <strong>Diseño</strong>, <strong>programación</strong>, <strong>maquinado</strong>, <strong>perfilado</strong>,{' '}
-                      <strong>detallado</strong> y <strong>armado</strong> — cada una con su tiempo exacto registrado.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/90 p-3.5 shadow-sm">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900/80">4 · Avance %</p>
-                    <p className="mt-1.5 text-[12px] leading-snug text-slate-700">
-                      El porcentaje sigue siendo <strong>avance_pct</strong> (o el automático en entregas). En la OC verás el{' '}
-                      <strong>promedio</strong> y el desglose por folio.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {ordenOcEnCursoCards.length > 0 ? (
-                <div>
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-0.5">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                      Órdenes en curso — avance % y tiempos de taller
-                    </p>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                      onClick={() => setOrdenInfoModalOpen(true)}
-                    >
-                      Información de esta vista
-                    </button>
-                  </div>
-                  {ordenOcEnCursoFiltradas.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-[13px] text-slate-600">
-                      Ninguna OC en curso coincide con el filtro o la búsqueda actual.
-                    </div>
-                  ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                      {ordenOcEnCursoFiltradas.map((c) => {
-                        return (
-                          <div
-                            key={c.key}
-                            className="overflow-hidden rounded-2xl border-2 border-indigo-200/80 bg-white shadow-[0_10px_36px_-20px_rgba(67,56,202,0.35)] ring-1 ring-indigo-900/[0.06]"
-                          >
-                            <div className="bg-indigo-700 px-4 py-2.5 text-white">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {hasProjectPrioridad(maxPrioridadNivel(c.items.map((x) => x.prioridadNivel))) ? (
-                                  <BodegaProjectPrioridadBadge nivel={maxPrioridadNivel(c.items.map((x) => x.prioridadNivel))} />
-                                ) : null}
-                                <p className="font-mono text-[15px] font-bold tracking-tight">OC {c.numero}</p>
-                              </div>
-                              <p className="truncate text-[11px] font-medium text-indigo-100" title={c.empresaNombre}>
-                                {c.empresaNombre}
-                              </p>
-                            </div>
-                            <div className="space-y-3 p-4">
-                              <div>
-                                <div className="flex items-end justify-between gap-2">
-                                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Avance de la OC</p>
-                                  <p className="text-2xl font-black tabular-nums leading-none text-indigo-950">{c.avgPct}%</p>
-                                </div>
-                                <p className="mt-0.5 text-[10px] text-slate-500">Promedio de los {c.nTotal} proyectos · {c.nDone} ya terminados</p>
-                                <div className="mt-2">
-                                  <OrdenAvancePctBar pct={c.avgPct} />
-                                </div>
-                              </div>
-                              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                                  Tiempos registrados (suma OC)
-                                </p>
-                                <p className="mt-1 text-[11px] leading-snug text-slate-600">
-                                  Suma de los relojes de cada folio. Varios proyectos en paralelo suman por separado.
-                                </p>
-                                <div className="mt-2">
-                                  <OrdenTimeSegmentsBar times={c.times} />
-                                </div>
-                                <div className="mt-2">
-                                  <OrdenProjectTimeGrid times={c.times} compact />
-                                </div>
-                                <div className="mt-2">
-                                  <OrdenTimesSummaryLine times={c.times} />
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                className="w-full rounded-lg border border-indigo-200 bg-indigo-50/80 py-2 text-center text-[11px] font-bold text-indigo-900 transition hover:bg-indigo-100"
-                                onClick={() => setOrdenDetalleOcKey((k) => (k === c.key ? null : c.key))}
-                              >
-                                {ordenDetalleOcKey === c.key ? 'Ocultar proyectos' : 'Ver tiempos por folio'}
-                              </button>
-                              {ordenDetalleOcKey === c.key ? (
-                                <ul className="max-h-[28rem] space-y-2 overflow-y-auto border-t border-slate-100 pt-2">
-                                  {c.items.map((r) => {
-                                    const times = ordenTimesPorProject.get(r.id) ?? sumOrdenTimeBreakdowns([])
-                                    const pct = clampPct(r.avance_pct)
-                                    return (
-                                      <li
-                                        key={r.id}
-                                        className={[
-                                          'rounded-lg border border-slate-100 bg-white p-2.5 shadow-sm',
-                                          prioridadRowHighlightClass(r.prioridadNivel) || 'border-slate-100',
-                                        ].join(' ')}
-                                      >
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                            <span className="font-mono text-[12px] font-bold text-slate-900">{r.folio}</span>
-                                            <BodegaProjectPrioridadBadge nivel={r.prioridadNivel} />
-                                          </div>
-                                          <span
-                                            className={[
-                                              'shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold',
-                                              statusTone(r.status),
-                                            ].join(' ')}
-                                          >
-                                            {statusLabel(r.status)}
-                                          </span>
-                                        </div>
-                                        <div className="mt-1.5 flex items-center gap-2">
-                                          <span className="shrink-0 text-[12px] font-black tabular-nums text-emerald-800">
-                                            {pct}%
-                                          </span>
-                                          <OrdenAvancePctBar pct={pct} className="min-w-0 flex-1" />
-                                        </div>
-                                        <div className="mt-2">
-                                          <OrdenTimeSegmentsBar times={times} />
-                                        </div>
-                                        <div className="mt-2">
-                                          <OrdenProjectTimeGrid times={times} compact />
-                                        </div>
-                                        {canTogglePrioridad ? (
-                                          <div className="mt-2">
-                                            <BodegaProjectPrioridadControl
-                                              compact
-                                              nivel={r.prioridadNivel}
-                                              canEdit
-                                              busy={prioridadBusyId === r.id}
-                                              onChange={(nivel) => void setProjectPrioridadNivel(r, nivel)}
-                                            />
-                                          </div>
-                                        ) : null}
-                                      </li>
-                                    )
-                                  })}
-                                </ul>
-                              ) : null}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
-              <div>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-0.5">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                    Órdenes cerradas — resumen por OC
-                  </p>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                    onClick={() => setOrdenInfoModalOpen(true)}
-                  >
-                    Información de esta vista
-                  </button>
-                </div>
-              {ordenInformeFiltrado.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-gradient-to-b from-slate-50/90 to-white px-5 py-10 text-center shadow-sm">
-                  <p className="text-[15px] font-semibold text-slate-800">
-                    {ordenInforme.cerradas.length === 0 ? 'Aún no hay órdenes cerradas' : 'Sin resultados con el filtro actual'}
-                  </p>
-                  {ordenInforme.cerradas.length === 0 ? (
-                    <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-slate-600">
-                      Cuando <strong>todos</strong> los proyectos de una misma orden de compra estén en «Terminado», esa OC
-                      aparecerá aquí con su fecha de cierre y duración.
-                    </p>
-                  ) : (
-                    <p className="mx-auto mt-2 max-w-md text-[13px] text-slate-600">
-                      Prueba otra búsqueda o quita el filtro de orden activo.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {ordenInformeFiltrado.map((c) => {
-                    const times = ordenTimesPorOc.get(c.key) ?? sumOrdenTimeBreakdowns([])
-                    const items = (ordenGrupoTodos.get(c.key) ?? []).slice().sort(cmpPrioridadFolio)
-                    return (
-                      <div
-                        key={c.key}
-                        className="overflow-hidden rounded-2xl border-2 border-emerald-200/90 bg-white shadow-[0_12px_40px_-22px_rgba(5,150,105,0.25)] ring-1 ring-emerald-900/[0.05]"
-                      >
-                        <div className="bg-emerald-700 px-4 py-2.5 text-white">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="font-mono text-[15px] font-bold tracking-tight">
-                                {c.oc && cotizacionLineasValidas(c.oc.cotizacion_lineas).length > 0 ? (
-                                  <button
-                                    type="button"
-                                    className="text-left text-white underline decoration-white/50 underline-offset-2 hover:text-emerald-50"
-                                    onClick={() => setPartidasModalOc(c.oc!)}
-                                  >
-                                    OC {c.numero}
-                                  </button>
-                                ) : (
-                                  <>OC {c.numero}</>
-                                )}
-                              </p>
-                              <p className="truncate text-[11px] font-medium text-emerald-100" title={c.empresaNombre}>
-                                {c.empresaNombre}
-                              </p>
-                            </div>
-                            <span className="shrink-0 rounded-full border border-white/35 bg-white/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
-                              {c.nProyectos} proyecto{c.nProyectos !== 1 ? 's' : ''} · 100%
-                            </span>
-                          </div>
-                          <p className="mt-1 truncate text-[10px] text-emerald-100/95" title={c.solicitante}>
-                            {c.solicitante}
-                          </p>
-                        </div>
-                        <div className="space-y-3 p-4">
-                          <div className="rounded-xl border border-slate-100 bg-slate-50/90 p-2.5">
-                            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Cierre de la orden</p>
-                            <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-slate-900">
-                              {formatDateTimeEs(c.fechaCierre)}
-                            </p>
-                            <p className="mt-1 text-[10px] leading-snug text-slate-500">
-                              Último proyecto en terminar (fecha de término o actualización).
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-bold uppercase text-slate-600">Tiempos por etapa (suma OC)</p>
-                            <div className="mt-1.5">
-                              <OrdenTimeSegmentsBar times={times} />
-                            </div>
-                            <div className="mt-2">
-                              <OrdenProjectTimeGrid times={times} compact />
-                            </div>
-                            <div className="mt-2">
-                              <OrdenTimesSummaryLine times={times} />
-                            </div>
-                          </div>
-                          <p className="text-[10px] leading-snug text-slate-500">
-                            Días calendario (inicio → cierre): referencia aparte del reloj. Promedio{' '}
-                            {c.diasPromedio > 0 ? (
-                              <span className="font-semibold text-slate-700">{c.diasPromedio} d</span>
-                            ) : (
-                              '—'
-                            )}
-                            {c.nProyectos > 1 && c.diasPromedio > 0 ? (
-                              <span>
-                                {' '}
-                                · min {c.diasMin} · max {c.diasMax}
-                              </span>
-                            ) : null}
-                          </p>
-                          <button
-                            type="button"
-                            className="w-full rounded-lg border border-emerald-200 bg-emerald-50/90 py-2 text-center text-[11px] font-bold text-emerald-950 transition hover:bg-emerald-100"
-                            onClick={() =>
-                              setOrdenCerradaDetalleKey((k) => (k === c.key ? null : c.key))
-                            }
-                          >
-                            {ordenCerradaDetalleKey === c.key ? 'Ocultar proyectos' : 'Ver tiempos por folio'}
-                          </button>
-                          {ordenCerradaDetalleKey === c.key ? (
-                            <ul className="max-h-[28rem] space-y-2 overflow-y-auto border-t border-emerald-100 pt-2">
-                              {items.map((r) => {
-                                const pt = ordenTimesPorProject.get(r.id) ?? sumOrdenTimeBreakdowns([])
-                                const pct = clampPct(r.avance_pct)
-                                return (
-                                  <li
-                                    key={r.id}
-                                    className={[
-                                      'rounded-lg border border-emerald-100/80 bg-emerald-50/30 p-2.5',
-                                      prioridadRowHighlightClass(r.prioridadNivel) || 'border-emerald-100/80 bg-emerald-50/30',
-                                    ].join(' ')}
-                                  >
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <span className="font-mono text-[12px] font-bold text-slate-900">{r.folio}</span>
-                                        <BodegaProjectPrioridadBadge nivel={r.prioridadNivel} />
-                                      </div>
-                                      <span className="text-[11px] font-bold tabular-nums text-emerald-800">{pct}%</span>
-                                    </div>
-                                    <div className="mt-1">
-                                      <OrdenAvancePctBar pct={pct} />
-                                    </div>
-                                    <div className="mt-2">
-                                      <OrdenTimeSegmentsBar times={pt} />
-                                    </div>
-                                    <div className="mt-2">
-                                      <OrdenProjectTimeGrid times={pt} compact />
-                                    </div>
-                                    {canTogglePrioridad ? (
-                                      <div className="mt-2">
-                                        <BodegaProjectPrioridadControl
-                                          compact
-                                          nivel={r.prioridadNivel}
-                                          canEdit
-                                          busy={prioridadBusyId === r.id}
-                                          onChange={(nivel) => void setProjectPrioridadNivel(r, nivel)}
-                                        />
-                                      </div>
-                                    ) : null}
-                                  </li>
-                                )
-                              })}
-                            </ul>
-                          ) : null}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-              <div>
-                <p className="mb-2 px-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Totales globales</p>
-                <div className="grid gap-4 lg:grid-cols-3">
-                  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm ring-1 ring-slate-900/[0.02]">
-                    <p className="text-center text-[12px] font-bold text-slate-900">Distribución de proyectos</p>
-                    <OrdenProyectosMixRing
-                      terminados={ordenInforme.terminadosCount}
-                      activos={ordenInforme.activosCount}
-                    />
-                    <div className="flex flex-wrap justify-center gap-x-5 gap-y-2 text-[11px] text-slate-600">
-                      <span className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-700" aria-hidden />
-                        Terminados{' '}
-                        <strong className="tabular-nums text-slate-900">{ordenInforme.terminadosCount}</strong>
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-600" aria-hidden />
-                        En curso <strong className="tabular-nums text-slate-900">{ordenInforme.activosCount}</strong>
-                      </span>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-900/[0.02] sm:p-5 lg:col-span-2">
-                    <p className="text-[13px] font-bold text-slate-900">Indicadores clave</p>
-                    <p className="mt-1 text-[12px] leading-snug text-slate-500">
-                      Cada fila es una métrica; la barra muestra su parte respecto al valor más alto del grupo.
-                    </p>
-                    <OrdenMiniColumnCompare
-                      max={Math.max(
-                        1,
-                        ordenInforme.terminadosCount,
-                        ordenInforme.cerradasCount,
-                        ordenInforme.diasPromedioTerminados,
-                        ordenInforme.horasLaboralesPromedioTerminados,
-                      )}
-                      items={[
-                        { label: 'Proyectos terminados', value: ordenInforme.terminadosCount, color: 'bg-slate-700' },
-                        { label: 'Órdenes cerradas', value: ordenInforme.cerradasCount, color: 'bg-emerald-600' },
-                        {
-                          label: 'Días cal. / proy.',
-                          value: ordenInforme.diasPromedioTerminados > 0 ? ordenInforme.diasPromedioTerminados : 0,
-                          color: 'bg-sky-600',
-                        },
-                        {
-                          label: 'H. hábiles / proy.',
-                          value:
-                            ordenInforme.horasLaboralesPromedioTerminados > 0
-                              ? ordenInforme.horasLaboralesPromedioTerminados
-                              : 0,
-                          color: 'bg-violet-600',
-                        },
-                      ]}
-                    />
-                    <p className="mt-2 text-[10px] leading-snug text-slate-500">
-                      «Días» y «horas hábiles» son promedios solo entre proyectos terminados; si no hay datos, la barra
-                      queda vacía.
-                    </p>
-                  </div>
-                </div>
-                <p className="mt-3 max-w-4xl px-0.5 text-[11px] leading-relaxed text-slate-500">
-                  <span className="font-semibold text-slate-600">Referencia lineal por % de avance:</span> ~{' '}
-                  {ordenInforme.horasEstimadasPorPct > 0
-                    ? ordenInforme.horasEstimadasPorPct < 0.01
-                      ? '<0.01'
-                      : ordenInforme.horasEstimadasPorPct.toFixed(2)
-                    : '—'}{' '}
-                  h por cada 1&nbsp;% (promedio de <em>días calendario</em> × 24&nbsp;h ÷ 100; no usa horario laboral).
-                </p>
-              </div>
-
-              <div>
-                <p className="mb-2 px-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                  Quién acumuló tiempo en franja laboral
-                </p>
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-900/[0.02]">
-                    <p className="text-[13px] font-bold text-slate-900">Proyectos terminados</p>
-                    <p className="mt-1 text-[12px] leading-snug text-slate-600">
-                      Entre inicio y cierre, ¿cayeron al menos <strong>1 minuto</strong> dentro del horario 8:00–17:30 en día
-                      hábil?
-                    </p>
-                    <div className="mt-4">
-                      <OrdenStackedBar
-                        left={ordenInforme.terminadosConFranjaHabil}
-                        right={ordenInforme.terminadosSinFranjaHabil}
-                        leftClass="h-full bg-emerald-600"
-                        rightClass="h-full bg-slate-400"
-                        leftCaption="Con tiempo hábil"
-                        rightCaption="Sin minutos en franja"
-                      />
-                    </div>
-                    <p className="mt-3 text-[10px] leading-snug text-slate-500">
-                      «Sin minutos» suele pasar si inicio y cierre son el mismo instante, solo abarcan fin de semana, o el
-                      intervalo no cruza ningún tramo 8:00–17:30 en día laborable.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-indigo-200/80 bg-indigo-50/40 p-4 shadow-sm ring-1 ring-indigo-900/[0.04]">
-                    <p className="text-[13px] font-bold text-indigo-950">Proyectos en curso (no terminados)</p>
-                    <p className="mt-1 text-[12px] leading-snug text-indigo-950/85">
-                      Suma de horas hábiles desde la <strong>fecha de inicio</strong> del proyecto hasta <strong>hoy</strong>.
-                    </p>
-                    <div className="mt-4">
-                      <OrdenStackedBar
-                        left={ordenInforme.activosConFranjaHabil}
-                        right={ordenInforme.activosSinFranjaHabil}
-                        leftClass="h-full bg-indigo-600"
-                        rightClass="h-full bg-slate-400"
-                        leftCaption="Con tiempo hábil en franja"
-                        rightCaption="Sin franja aún"
-                      />
-                    </div>
-                    <div className="mt-4 border-t border-indigo-200/80 pt-4">
-                      <div className="flex flex-wrap items-end justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-900/80">En curso</p>
-                          <p className="text-2xl font-bold tabular-nums text-indigo-950">{ordenInforme.activosCount}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-900/80">
-                            H. hábiles acumuladas
-                          </p>
-                          <p className="text-2xl font-bold tabular-nums text-indigo-900">
-                            {ordenInforme.horasLaboralesActivosAcum > 0 ? `${ordenInforme.horasLaboralesActivosAcum} h` : '—'}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-[10px] leading-snug text-indigo-900/70">
-                        Total de horas hábiles (lun–vie 8:00–17:30) sumando todos los proyectos activos.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-2 px-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                  Actividad reciente (proyectos terminados y órdenes cerradas)
-                </p>
-                <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-900/[0.02] sm:p-5">
-                  <p className="text-[13px] font-bold text-slate-900">Semana, mes y año en curso</p>
-                  <p className="mt-1 text-[12px] leading-snug text-slate-500">
-                    Proyectos (gris) y órdenes cerradas (verde); la escala es común a todas las filas.
-                  </p>
-                  <OrdenMiniColumnCompare
-                        max={Math.max(
-                          1,
-                          ordenInforme.semanaProyectos,
-                          ordenInforme.semanaOcs,
-                          ordenInforme.mesProyectos,
-                          ordenInforme.mesOcs,
-                          ordenInforme.añoProyectos,
-                          ordenInforme.añoOcs,
-                        )}
-                        items={[
-                          { label: 'Sem. · proyectos', value: ordenInforme.semanaProyectos, color: 'bg-slate-700' },
-                          { label: 'Sem. · órdenes', value: ordenInforme.semanaOcs, color: 'bg-emerald-600' },
-                          { label: 'Mes · proyectos', value: ordenInforme.mesProyectos, color: 'bg-slate-600' },
-                          { label: 'Mes · órdenes', value: ordenInforme.mesOcs, color: 'bg-emerald-500' },
-                          { label: 'Año · proyectos', value: ordenInforme.añoProyectos, color: 'bg-slate-500' },
-                          { label: 'Año · órdenes', value: ordenInforme.añoOcs, color: 'bg-emerald-400' },
-                        ]}
-                      />
-                  <p className="mt-2 text-[10px] text-slate-500">
-                    Semana = lunes a domingo que contiene hoy. Mes y año según calendario local del navegador.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="overflow-hidden rounded-2xl border border-slate-200/90 border-l-4 border-l-sky-500 bg-white shadow-sm ring-1 ring-slate-900/[0.02]">
-                  <div className="p-4 sm:p-5">
-                    <h3 className="text-[14px] font-bold tracking-tight text-slate-900">Proyectos terminados por mes</h3>
-                    <p className="mt-1 text-[12px] leading-snug text-slate-500">Últimos 12 meses · barras por mes</p>
-                    <OrdenColumnChart
-                      rows={ordenInforme.chartProyectosMes}
-                      max={ordenInforme.maxChart}
-                      barClass="bg-sky-600"
-                      chartHeightPx={140}
-                    />
-                  </div>
-                </div>
-                <div className="overflow-hidden rounded-2xl border border-slate-200/90 border-l-4 border-l-emerald-500 bg-white shadow-sm ring-1 ring-slate-900/[0.02]">
-                  <div className="p-4 sm:p-5">
-                    <h3 className="text-[14px] font-bold tracking-tight text-slate-900">Órdenes cerradas por mes</h3>
-                    <p className="mt-1 text-[12px] leading-snug text-slate-500">Últimos 12 meses · OC completamente terminadas</p>
-                    <OrdenColumnChart
-                      rows={ordenInforme.chartOcsMes}
-                      max={ordenInforme.maxChart}
-                      barClass="bg-emerald-600"
-                      chartHeightPx={140}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {ordenInforme.chartProyectosAño.length > 0 ? (
-                <div className="overflow-hidden rounded-2xl border border-slate-200/90 border-l-4 border-l-violet-600 bg-white shadow-sm ring-1 ring-slate-900/[0.02]">
-                  <div className="p-4 sm:p-5">
-                    <h3 className="text-[14px] font-bold tracking-tight text-slate-900">Proyectos terminados por año</h3>
-                    <p className="mt-1 text-[12px] leading-snug text-slate-500">Vista anual acumulada</p>
-                    <div className="max-w-xl">
-                      <OrdenColumnChart
-                        rows={ordenInforme.chartProyectosAño}
-                        max={ordenInforme.maxAño}
-                        barClass="bg-violet-600"
-                        chartHeightPx={160}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </div>
+            <BodegaOrdenTab
+              filas={ordenTablaFilas}
+              filtro={ordenTablaFiltro}
+              onFiltro={(f) => {
+                setOrdenTablaFiltro(f)
+                setOrdenDetalleOcKey(null)
+              }}
+              conteos={{ cerradas: ordenInformeFiltrado.length, curso: ordenOcEnCursoFiltradas.length }}
+              detalleKey={ordenDetalleOcKey}
+              onToggleDetalle={(key) => setOrdenDetalleOcKey((k) => (k === key ? null : key))}
+              resumen={{
+                cerradasCount: ordenInforme.cerradasCount,
+                terminadosCount: ordenInforme.terminadosCount,
+                activosCount: ordenInforme.activosCount,
+                diasPromedioTerminados: ordenInforme.diasPromedioTerminados,
+              }}
+              tiempoTotal={ordenTiempoTotal}
+              cargandoTiempos={ordenTimesLoading}
+              hayFiltroActivo={q.trim().length > 0 || !!filterOrdenCompraId}
+              onOpenInfo={() => setOrdenInfoModalOpen(true)}
+              onVerPartidas={abrirPartidasDeGrupo}
+              canEditPrioridad={canTogglePrioridad}
+              prioridadBusyId={prioridadBusyId}
+              onChangePrioridad={(projectId, nivel) => {
+                const r = rows.find((x) => x.id === projectId)
+                if (r) void setProjectPrioridadNivel(r, nivel)
+              }}
+              estadisticas={{
+                chartProyectosMes: ordenInforme.chartProyectosMes,
+                chartOcsMes: ordenInforme.chartOcsMes,
+                chartProyectosAño: ordenInforme.chartProyectosAño,
+                maxChart: ordenInforme.maxChart,
+                maxAño: ordenInforme.maxAño,
+                semanaProyectos: ordenInforme.semanaProyectos,
+                semanaOcs: ordenInforme.semanaOcs,
+                mesProyectos: ordenInforme.mesProyectos,
+                mesOcs: ordenInforme.mesOcs,
+                añoProyectos: ordenInforme.añoProyectos,
+                añoOcs: ordenInforme.añoOcs,
+              }}
+              estadisticasOpen={ordenEstadisticasOpen}
+              onToggleEstadisticas={() => setOrdenEstadisticasOpen((v) => !v)}
+            />
           ) : (
             <div className="py-8 text-center text-[13px] text-slate-500">Sin datos.</div>
           )}
         </div>
       </div>
-
       {ordenInfoModalOpen ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
           <button
@@ -5230,6 +4886,8 @@ export function BodegaPage(props: {
           </div>
         </div>
       ) : null}
+
+      {xtPruebaOpen ? <BodegaXtPruebaPanel onClose={() => setXtPruebaOpen(false)} /> : null}
     </section>
   )
 }

@@ -8,26 +8,29 @@ type Props = {
   /** Minutos hábiles acumulados (opcional, texto pequeño). */
   businessMinutes?: number
   businessMinutesLabel?: string
-  tone?: 'default' | 'pink' | 'programacion' | 'teal' | 'amber' | 'slate'
+  tone?: 'default' | 'pink' | 'programacion' | 'teal' | 'amber' | 'slate' | 'navy'
+  idleLabel?: string
   className?: string
 }
 
 const TONE_ACTIVE: Record<NonNullable<Props['tone']>, string> = {
-  default: 'text-emerald-700 ring-emerald-300/60',
-  pink: 'text-pink-700 ring-pink-300/60',
-  programacion: 'text-programacion-700 ring-programacion-400/50',
-  teal: 'text-teal-700 ring-teal-300/60',
-  amber: 'text-amber-800 ring-amber-300/60',
-  slate: 'text-slate-800 ring-slate-300/60',
+  default: 'border-emerald-300 bg-white text-emerald-800 ring-emerald-300/60',
+  pink: 'border-pink-300 bg-white text-pink-700 ring-pink-300/60',
+  programacion: 'border-programacion-300 bg-white text-programacion-800 ring-programacion-400/50',
+  teal: 'border-teal-300 bg-white text-teal-800 ring-teal-300/60',
+  amber: 'border-amber-300 bg-white text-amber-900 ring-amber-300/60',
+  slate: 'border-slate-300 bg-white text-slate-800 ring-slate-300/60',
+  navy: 'border-section-navy bg-section-navy text-white ring-sky-400/40',
 }
 
 const TONE_IDLE: Record<NonNullable<Props['tone']>, string> = {
-  default: 'text-slate-700 ring-slate-200/80',
-  pink: 'text-pink-900/80 ring-pink-200/80',
-  programacion: 'text-programacion-900/80 ring-programacion-200/80',
-  teal: 'text-teal-900/80 ring-teal-200/80',
-  amber: 'text-amber-900/80 ring-amber-200/80',
-  slate: 'text-slate-600 ring-slate-200/80',
+  default: 'border-slate-200 bg-white text-slate-700 ring-slate-200/80',
+  pink: 'border-pink-200 bg-white text-pink-900/80 ring-pink-200/80',
+  programacion: 'border-programacion-200 bg-white text-programacion-900/80 ring-programacion-200/80',
+  teal: 'border-teal-200 bg-white text-teal-900/80 ring-teal-200/80',
+  amber: 'border-amber-200 bg-white text-amber-900/80 ring-amber-200/80',
+  slate: 'border-slate-300 bg-slate-50 text-slate-700 ring-slate-200/80',
+  navy: 'border-slate-300 bg-slate-100 text-section-navy ring-slate-300/70',
 }
 
 export function BodegaLiveClock(props: Props) {
@@ -37,7 +40,7 @@ export function BodegaLiveClock(props: Props) {
   return (
     <div
       className={[
-        'rounded-xl border bg-white/90 px-4 py-3.5 text-center shadow-sm ring-2',
+        'rounded-xl border px-4 py-3.5 text-center shadow-sm ring-2',
         props.active ? TONE_ACTIVE[tone] : TONE_IDLE[tone],
         props.className ?? '',
       ].join(' ')}
@@ -55,15 +58,21 @@ export function BodegaLiveClock(props: Props) {
         {display}
       </p>
       {props.active ? (
-        <p className="mt-2 text-[11px] font-bold uppercase tracking-wide text-emerald-700">En curso</p>
+        <p className={['mt-2 text-[11px] font-bold uppercase tracking-wide', tone === 'navy' ? 'text-emerald-300' : 'text-emerald-700'].join(' ')}>
+          En curso
+        </p>
       ) : props.seconds > 0 ? (
-        <p className="mt-2 text-[11px] text-slate-500">Pausado / terminado</p>
+        <p className={['mt-2 text-[11px] font-semibold', tone === 'navy' ? 'text-slate-600' : 'text-slate-500'].join(' ')}>
+          Pausado / terminado
+        </p>
       ) : (
-        <p className="mt-2 text-[11px] text-slate-500">00:00:00 — pulsa Inicio</p>
+        <p className={['mt-2 text-[11px] font-semibold', tone === 'navy' ? 'text-slate-600' : 'text-slate-500'].join(' ')}>
+          {props.idleLabel ?? 'Aún no inicia'}
+        </p>
       )}
       {props.hint ? <p className="mt-2 text-[12px] leading-snug opacity-85">{props.hint}</p> : null}
       {props.businessMinutes != null && props.businessMinutes > 0 ? (
-        <p className="mt-1.5 font-mono text-[10px] text-slate-500">
+        <p className={['mt-1.5 font-mono text-[10px]', props.active && tone === 'navy' ? 'text-sky-200' : 'text-slate-500'].join(' ')}>
           {props.businessMinutesLabel ?? 'Hábil'}: {Math.round(props.businessMinutes)} min
         </p>
       ) : null}

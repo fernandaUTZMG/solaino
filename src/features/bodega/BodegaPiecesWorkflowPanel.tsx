@@ -15,6 +15,7 @@ import {
   updatePieceSourcePath,
   updateProgrammingRoutesConfirmed,
 } from '../../lib/bodegaPiecesRepo'
+import type { ProjectPiecePhotoRow } from '../../lib/piecePhotosRepo'
 import { visibleDesignPieces } from '../../lib/designZipPiecePairs'
 import { canReassignProgrammerCncTorno, isSwPartsAssignmentComplete } from '../../lib/bodegaProgrammerFlow'
 import { BodegaPieceWorkflowCard } from './BodegaPieceWorkflowCard.tsx'
@@ -66,6 +67,10 @@ export function BodegaPiecesWorkflowPanel(props: {
   pieces: BodegaProjectPieceRow[]
   flowMeta: FlowMeta | null
   piecePhotosCount: number
+  photos: ProjectPiecePhotoRow[]
+  canUploadPhotos: boolean
+  photoUploadBusy: boolean
+  onUploadPhotos: (pieceId: string, files: File[]) => void | Promise<void>
   approvedDesign: ApprovedDesignZipInfo | null
   onReload: () => Promise<void>
 }) {
@@ -440,6 +445,10 @@ export function BodegaPiecesWorkflowPanel(props: {
                     }
                     busy={busy}
                     dragOver={dragOverPieceId === p.id}
+                    photos={props.photos}
+                    canUploadPhotos={props.canUploadPhotos}
+                    photoUploadBusy={props.photoUploadBusy}
+                    onUploadPhotos={props.onUploadPhotos}
                     pathDraft={
                       pathDraftByPiece[p.id] !== undefined ? pathDraftByPiece[p.id]! : (p.source_path ?? '')
                     }
@@ -472,13 +481,14 @@ export function BodegaPiecesWorkflowPanel(props: {
       )}
 
       {canSupervisorFinalizeBodegaProject(props.role) ? (
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
-          <h3 className="text-[14px] font-bold text-emerald-950">Cierre del proyecto</h3>
-          <p className="mt-2 text-[13px] text-emerald-950/90">
-            Sube una foto por cada pieza con detallado listo en la pestaña <strong>Fotos</strong>. El supervisor finaliza
-            el proyecto desde ahí cuando todas tengan evidencia.
+        <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 className="text-[14px] font-bold text-section-navy">Cierre del proyecto</h3>
+          <p className="mt-2 text-[13px] text-slate-700">
+            Cuando una pieza termina detallado (CNC) o se dirige a torno/perfilado/accesorios, sube su foto en
+            la tarjeta de <strong>Piezas</strong> o en la pestaña <strong>Fotos</strong>. El supervisor finaliza
+            el proyecto cuando todas tengan foto.
             {props.flowMeta?.project_finalized_at ? (
-              <span className="mt-2 block text-emerald-800">
+              <span className="mt-2 block text-slate-600">
                 Ya finalizado {props.flowMeta.project_finalized_at.slice(0, 16)}.
               </span>
             ) : null}

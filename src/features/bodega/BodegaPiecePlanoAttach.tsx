@@ -11,6 +11,8 @@ type Props = {
   designZipPaths?: string[]
   canEdit: boolean
   compact?: boolean
+  expectedFileName?: string
+  renameFile?: (file: File) => File
   onUpdated: () => void | Promise<void>
 }
 
@@ -24,13 +26,14 @@ export function BodegaPiecePlanoAttach(props: Props) {
 
   async function onFile(file: File | undefined) {
     if (!file || !props.canEdit) return
+    const toUpload = props.renameFile ? props.renameFile(file) : file
     setBusy(true)
     setErr(null)
     try {
       await attachPieceDesignDrawing({
         projectFolio: props.projectFolio,
         pieceId: props.piece.id,
-        file,
+        file: toUpload,
       })
       await props.onUpdated()
     } catch (e) {
@@ -67,7 +70,9 @@ export function BodegaPiecePlanoAttach(props: Props) {
         </div>
       ) : (
         <p className="text-[12px] leading-relaxed text-amber-900">
-          Sin plano vinculado. Sube el PDF si lo recibiste aparte del ZIP.
+          {props.expectedFileName
+            ? `Sin plano. Súbelo como ${props.expectedFileName}, independiente del .x_t.`
+            : 'Sin plano vinculado. Sube el PDF si lo recibiste aparte del ensamble.'}
         </p>
       )}
 
@@ -96,7 +101,7 @@ export function BodegaPiecePlanoAttach(props: Props) {
         </label>
       ) : null}
 
-      {err ? <p className="text-[11px] text-rose-800">{err}</p> : null}
+      {err ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[12px] text-rose-900">{err}</p> : null}
     </div>
   )
 }

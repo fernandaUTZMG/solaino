@@ -15,24 +15,25 @@ type Props = {
   designUploadPhase: string
   designEntregaVersions: ProjectDesignVersionRow[]
   clienteInfoVersions: ProjectDesignVersionRow[]
-  onUploadDesign: (file: File) => void
+  onUploadDesign: (file: File, planos?: File[]) => void
   onDownload: (v: ProjectDesignVersionRow) => void
   formatDateTime: (d: Date) => string
-  step3Complete?: boolean
+  destinosComplete?: boolean
   showPlanosStep?: boolean
   clockPanel: ReactNode
   supervisorPanel: ReactNode | null
+  destinosPanel?: ReactNode | null
   planosPanel: ReactNode | null
 }
 
-function StepBlock(props: { n: number; title: string; subtitle: string; children: ReactNode }) {
+function StepBlock(props: { n?: number; title: string; subtitle: string; children: ReactNode }) {
   return (
     <section className={disenoStepCard}>
       <div className={disenoStepHeader}>
-        <span className={disenoStepNumber}>{props.n}</span>
+        {props.n != null && props.n > 0 ? <span className={disenoStepNumber}>{props.n}</span> : null}
         <div className="min-w-0 flex-1">
-        <h3 className="text-[15px] font-bold text-pink-950">{props.title}</h3>
-        <p className="mt-0.5 text-[12px] leading-snug text-pink-900/85">{props.subtitle}</p>
+          <h3 className="text-[15px] font-bold text-section-navy">{props.title}</h3>
+          <p className="mt-0.5 text-[13px] leading-snug text-slate-500">{props.subtitle}</p>
         </div>
       </div>
       <div className={disenoStepBody}>{props.children}</div>
@@ -43,18 +44,26 @@ function StepBlock(props: { n: number; title: string; subtitle: string; children
 export function BodegaDisenoWorkspace(props: Props) {
   const pendingReview = nextDesignVersionPendingReview(props.designEntregaVersions)
   const showSupervisor = canReviewBodegaDesign(props.role) && props.supervisorPanel != null
+  const showDestinos = props.destinosPanel != null
   const showPlanos = props.showPlanosStep === true && props.planosPanel != null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <BodegaDisenoGuide
         role={props.role}
         projectStatus={props.projectStatus}
         hasClienteInfo={props.clienteInfoVersions.length > 0}
         hasEntregaZip={props.designEntregaVersions.length > 0}
         pendingReview={pendingReview != null}
-        step3Complete={props.step3Complete}
+        destinosComplete={props.destinosComplete}
       />
+
+      <StepBlock
+        title="Tiempo de diseño"
+        subtitle="Empieza al entrar al proyecto. Se pausa cuando entregas el ensamble .x_t."
+      >
+        {props.clockPanel}
+      </StepBlock>
 
       <BodegaDisenoTabPanel
         canUploadDesign={props.canUploadDesign}
@@ -67,55 +76,51 @@ export function BodegaDisenoWorkspace(props: Props) {
         formatDateTime={props.formatDateTime}
       />
 
-      <StepBlock
-        n={3}
-        title="Tiempos de trabajo"
-        subtitle="El reloj registra diseño inicial y cada ronda de corrección. Al subir un ZIP el tiempo se pausa hasta la revisión del supervisor."
-      >
-        {props.clockPanel}
-      </StepBlock>
-
       {showSupervisor ? (
         <StepBlock
-          n={4}
-          title="Revisión y piezas (supervisor)"
-          subtitle="Revisa pieza por pieza, aprueba las listas y marca correcciones con motivo. Las aprobadas pueden avanzar a programación."
+          n={3}
+          title="Revisión (supervisor)"
+          subtitle="Revisa la entrega .x_t, aprueba o pide correcciones con un motivo claro."
         >
           {props.supervisorPanel}
         </StepBlock>
       ) : props.projectStatus === 'revision_diseno' ? (
-        <div className="rounded-2xl border-2 border-pink-300 bg-pink-100/80 px-4 py-4 text-[13px] text-pink-950">
-          <strong>En revisión.</strong> El supervisor está evaluando tu última entrega pieza por pieza. Si alguna
-          requiere cambios, verás el motivo aquí y podrás subir un ZIP de corrección en el paso 2.
+        <div className="rounded-2xl border border-sky-300 bg-sky-50 px-4 py-4 text-[13px] text-sky-950 shadow-sm">
+          <strong>En revisión.</strong> El supervisor está evaluando tu última entrega. Si pide cambios, verás el motivo
+          aquí y podrás subir un nuevo .x_t.
         </div>
       ) : props.projectStatus === 'diseno_parcial' ? (
-        <div className="rounded-2xl border-2 border-teal-300 bg-teal-50 px-4 py-4 text-[13px] text-teal-950">
-          <strong>Diseño parcial.</strong> Algunas piezas ya fueron aprobadas y avanzan en planta. Corrige solo las
-          piezas indicadas y sube un nuevo ZIP con esas correcciones; el reloj registrará el tiempo extra de diseño.
+        <div className="rounded-2xl border border-sky-300 bg-sky-50 px-4 py-4 text-[13px] text-sky-950 shadow-sm">
+          <strong>Diseño parcial.</strong> Algunas piezas ya avanzan. Corrige solo las indicadas y entrega un nuevo
+          .x_t; el reloj registrará el tiempo extra.
         </div>
       ) : props.projectStatus === 'modificacion_diseno' ? (
-        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-4 text-[13px] text-amber-950">
-          <strong>Corrección requerida.</strong> Revisa los comentarios del supervisor, corrige las piezas y sube una
-          nueva versión del ZIP en el paso 2.
+        <div className="rounded-2xl border border-amber-400 bg-amber-50 px-4 py-4 text-[13px] text-amber-950 shadow-sm">
+          <strong>Corrección requerida.</strong> Revisa los comentarios, corrige y entrega una nueva versión del .x_t.
         </div>
+      ) : null}
+
+      {showDestinos ? (
+        <StepBlock
+          n={showSupervisor ? 4 : 3}
+          title="Destino de cada pieza"
+          subtitle="Disponible cuando el encargado ya confirmó el diseño y los planos. CNC se programa; torno y perfiladora salen sin tiempo."
+        >
+          {props.destinosPanel}
+        </StepBlock>
       ) : null}
 
       {showPlanos ? (
         <div id="bodega-planos-pieza-section">
           <StepBlock
-            n={showSupervisor ? 5 : 4}
-            title="Planos adicionales por pieza"
-            subtitle="Si un PDF llegó aparte del ZIP, adjúntalo a la pieza correcta para maquinado y taller."
+            n={(showSupervisor ? 4 : 3) + (showDestinos ? 1 : 0)}
+            title="Planos de torno y perfilado"
+            subtitle="PDF con el mismo nombre que la pieza. Luego eliges torno o perfiladora."
           >
             {props.planosPanel}
           </StepBlock>
         </div>
       ) : null}
-
-      <p className="rounded-xl border-2 border-pink-300/90 bg-pink-100/70 px-4 py-3 text-[12px] leading-relaxed text-pink-950">
-        <strong className="text-pink-900">Seguimiento:</strong> más abajo en esta pantalla están las notas de avance y
-        el historial de todo lo que ocurre en el proyecto (subidas, aprobaciones, comentarios).
-      </p>
     </div>
   )
 }

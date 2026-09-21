@@ -1,7 +1,7 @@
 {
   "name": "inventario-solaino",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.0.9",
   "type": "module",
   "main": "electron-main.cjs",
   "scripts": {
@@ -14,6 +14,7 @@
     "desktop:prep": "node scripts/desktop-prep.cjs",
     "desktop:build": "npm run build && npm run desktop:prep && node scripts/run-electron-builder.cjs --win",
     "desktop:publish": "npm run build && npm run desktop:prep && node scripts/run-electron-builder.cjs --win --publish always",
+    "xt:pieces": "node --experimental-strip-types scripts/parse-xt-pieces.ts",
     "github:publish-drafts": "node scripts/publish-github-drafts.cjs",
     "github:init-repo": "node scripts/github-init-repo.cjs"
   },

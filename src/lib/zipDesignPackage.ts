@@ -11,6 +11,11 @@ export type ZipDesignManifest = {
   hasSolidworks: boolean
   /** Rutas internas del ZIP (para asignación de piezas sin volver a subir el archivo). */
   entryPaths?: string[]
+  /** Entrega de ensamble Parasolid (`.x_t`) en lugar de ZIP. */
+  kind?: 'zip' | 'xt'
+  assemblyKey?: string
+  exportedBy?: string
+  pieceNames?: string[]
 }
 
 export type ZipDesignAnalysis = {
@@ -154,7 +159,11 @@ export function isCadLikeZipPath(path: string): boolean {
 }
 
 export function isSwPartZipPath(path: string): boolean {
-  return SW_PART_PATH_RE.test(path.trim())
+  const p = path.trim()
+  if (SW_PART_PATH_RE.test(p)) return true
+  if (/\.x_t$/i.test(p) && !p.includes('/')) return true
+  // Pieza leída de un ensamble Parasolid: nombre de componente, sin ruta ni extensión CAD.
+  return Boolean(p) && !p.includes('/') && !/\.[a-z0-9]{1,8}$/i.test(p)
 }
 
 export function filterSwPartZipPaths(paths: string[]): string[] {

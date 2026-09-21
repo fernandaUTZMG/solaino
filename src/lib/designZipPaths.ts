@@ -4,12 +4,13 @@ import {
 } from './designVersionsRepo'
 import { designZipKitKey, parseVersionScopedDesignPath, versionScopedDesignPath } from './designZipScope'
 import { listZipEntryPathsFromBlob } from './zipDesignPackage'
+import { isXtDesignVersion } from './xtDesignManifest'
 
 export { designZipKitKey, parseVersionScopedDesignPath, versionScopedDesignPath } from './designZipScope'
 
 function readManifestEntryPaths(manifest: Record<string, unknown> | null): string[] | null {
   if (!manifest) return null
-  const raw = manifest.entryPaths
+  const raw = manifest.entryPaths ?? manifest.pieceNames
   if (!Array.isArray(raw)) return null
   const paths = raw.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
   return paths.length > 0 ? paths : null
@@ -19,6 +20,10 @@ function readManifestEntryPaths(manifest: Record<string, unknown> | null): strin
 export async function resolveDesignVersionEntryPaths(version: ProjectDesignVersionRow): Promise<string[]> {
   const fromManifest = readManifestEntryPaths(version.manifest)
   if (fromManifest) return fromManifest
+
+  if (isXtDesignVersion(version)) {
+    return []
+  }
 
   const url = await createSignedUrlForDesignZip(version.zip_storage_path)
   if (!url) throw new Error('No se pudo abrir el ZIP de diseño en la nube (permisos o ruta).')

@@ -43,6 +43,45 @@ function NotificationBody(props: { notification: AppNotificationRow }) {
   const n = props.notification
   const pieces = n.payload.pieces_to_correct ?? []
 
+  if (n.kind === 'bodega_design_xt') {
+    const folio = n.payload.folio || n.payload.proyecto_nombre
+    const filename = n.payload.filename
+    const count = n.payload.piece_count
+    return (
+      <div className="mt-1 space-y-1">
+        {folio ? <p className="text-[12px] leading-snug text-slate-700">{folio}</p> : null}
+        {filename ? (
+          <p className="truncate font-mono text-[12px] font-semibold text-section-navy" title={filename}>
+            {filename}
+          </p>
+        ) : null}
+        <p className="text-[12px] leading-snug text-slate-600">
+          {count && count > 0 ? `${count} pieza(s) · ` : ''}
+          Ábrelo en Programación para descargar y asignar CNC, torno o perfilado.
+        </p>
+      </div>
+    )
+  }
+
+  if (n.kind === 'bodega_design_confirmada') {
+    const folio = n.payload.folio || n.payload.proyecto_nombre
+    const filename = n.payload.filename
+    return (
+      <div className="mt-1 space-y-1">
+        {folio ? <p className="text-[12px] leading-snug text-slate-700">{folio}</p> : null}
+        {filename ? (
+          <p className="truncate font-mono text-[12px] font-semibold text-emerald-900" title={filename}>
+            {filename}
+            {n.payload.design_version ? ` · V${n.payload.design_version}` : ''}
+          </p>
+        ) : null}
+        <p className="text-[12px] leading-snug text-emerald-800">
+          El encargado confirmó tu entrega. Ya puedes separar destinos en Diseño.
+        </p>
+      </div>
+    )
+  }
+
   if (n.kind === 'bodega_design_correccion' && pieces.length > 0) {
     return (
       <div className="mt-1 space-y-2">
@@ -77,7 +116,7 @@ function NotificationBody(props: { notification: AppNotificationRow }) {
 }
 
 type Props = {
-  onOpenProject?: (projectId: string) => void
+  onOpenProject?: (projectId: string, opts?: { tab?: 'diseno' | 'cnc' }) => void
   /** `nav`: junto al botón Bodega; `topbar`: barra superior (legacy). */
   variant?: 'nav' | 'topbar'
 }
@@ -137,7 +176,10 @@ export function AppNotificationsBell(props: Props) {
     setUnreadCount((c) => Math.max(0, c - 1))
     setOpen(false)
     const pid = n.payload.project_id
-    if (pid && props.onOpenProject) props.onOpenProject(pid)
+    if (pid && props.onOpenProject) {
+      const tab = n.payload.tab === 'cnc' || n.payload.tab === 'diseno' ? n.payload.tab : undefined
+      props.onOpenProject(pid, tab ? { tab } : undefined)
+    }
   }
 
   async function onMarkAllRead() {
