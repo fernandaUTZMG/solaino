@@ -43,6 +43,16 @@ export async function runDesignZipUpload(args: {
   packageCategory?: DesignPackageCategory
   /** Evita re-analizar el ZIP en subidas masivas por OC. */
   precomputedAnalysis?: ZipDesignAnalysis
+  /**
+   * `false` deja vivas las entregas anteriores en revisión: la nueva se suma en vez de corregirlas.
+   * Se usa cuando la diseñadora entrega el ensamble partido en varios .x_t.
+   */
+  supersedePending?: boolean
+  /**
+   * Piezas del `.x_t` que sí se entregan. Las que la diseñadora quitó en la revisión previa
+   * no se registran ni llegan al encargado. Sin esta lista se entrega el ensamble completo.
+   */
+  keepPieceNames?: string[]
 }): Promise<void> {
   const { project, file, comment, existingDesignVersions, uploaderRole, onPhase, uploadOrigin, packageCategory } = args
   const cat: DesignPackageCategory = packageCategory ?? 'entrega_diseno'
@@ -54,6 +64,8 @@ export async function runDesignZipUpload(args: {
 
   const asXt = isXtDesignFile(file)
   let analysis: ZipDesignAnalysis
+  let keptPieces: string[] = []
+  let removedPieceCount = 0
   if (asXt) {
     phase('Leyendo ensamble .x_t…')
     const parsed = await parseXtFile(file)
@@ -65,6 +77,16 @@ export async function runDesignZipUpload(args: {
     if (parsed.pieces.length === 0) {
       throw new Error('No se detectaron piezas en el .x_t. Revisa que el ensamble sea FORMAT=text.')
     }
+    if (args.keepPieceNames) {
+      const keep = new Set(args.keepPieceNames)
+      keptPieces = parsed.pieces.filter((p) => keep.has(p.name)).map((p) => p.name)
+      if (keptPieces.length === 0) {
+        throw new Error(`No queda ninguna pieza por entregar en ${file.name}: quitaste todas.`)
+      }
+      removedPieceCount = parsed.pieces.length - keptPieces.length
+    } else {
+      keptPieces = parsed.pieces.map((p) => p.name)
+    }
     analysis = {
       entryHtmlPath: null,
       manifest: {
@@ -75,11 +97,11 @@ export async function runDesignZipUpload(args: {
         hasHtml: false,
         hasPdf: false,
         hasSolidworks: false,
-        entryPaths: parsed.pieces.map((p) => p.name),
+        entryPaths: keptPieces,
         kind: 'xt',
         assemblyKey: parsed.assemblyKey,
         exportedBy: parsed.exportedBy,
-        pieceNames: parsed.pieces.map((p) => p.name),
+        pieceNames: keptPieces,
       },
     }
   } else {
@@ -115,6 +137,8 @@ export async function runDesignZipUpload(args: {
     uploaderRole,
     uploadOrigin,
     existingDesignVersions,
+    supersedePending: args.supersedePending,
+    removedPieceCount,
   })
 }
 
@@ -129,6 +153,9 @@ async function registerDesignZipVersionForProject(args: {
   uploaderRole: AppRole
   uploadOrigin?: string
   existingDesignVersions: Pick<ProjectDesignVersionRow, 'status' | 'version' | 'package_category'>[]
+  supersedePending?: boolean
+  /** Piezas que la diseñadora quitó antes de entregar (queda en el historial del proyecto). */
+  removedPieceCount?: number
 }): Promise<void> {
   const { project, analysis, storagePath, zipFilename, comment, packageCategory: cat, uploaderRole, uploadOrigin, existingDesignVersions } =
     args
@@ -146,7 +173,7 @@ async function registerDesignZipVersionForProject(args: {
     comentarios: comment,
   })
 
-  if (cat === 'entrega_diseno' && rowStatus === 'en_revision') {
+  if (cat === 'entrega_diseno' && rowStatus === 'en_revision' && args.supersedePending !== false) {
     await supersedeOlderPendingDesignVersions(project.id, nextV)
   }
 
@@ -174,6 +201,7 @@ async function registerDesignZipVersionForProject(args: {
       ...(analysis.manifest.kind === 'xt'
         ? { kind: 'xt', piece_count: analysis.manifest.pieceNames?.length ?? analysis.manifest.entryPaths?.length ?? 0 }
         : {}),
+      ...(args.removedPieceCount ? { piezas_quitadas: args.removedPieceCount } : {}),
     },
   })
 

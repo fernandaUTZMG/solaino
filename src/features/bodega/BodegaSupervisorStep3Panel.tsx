@@ -40,6 +40,9 @@ export function BodegaSupervisorStep3Panel(props: Props) {
     [props.designEntregaVersions],
   )
 
+  /** La diseñadora puede entregar el ensamble partido en varios .x_t: se confirman uno por uno. */
+  const pendingReviewCount = props.designEntregaVersions.filter((v) => v.status === 'en_revision').length
+
   const designApproved = ['diseno_aprobado', 'diseno_parcial', 'en_programacion', 'revision_programacion'].includes(
     props.projectStatus,
   )
@@ -168,8 +171,8 @@ export function BodegaSupervisorStep3Panel(props: Props) {
               {' · '}
               <span className="font-semibold text-slate-700">{planosSummary.sinPlano} sin plano</span>
               {' · '}
-              {planosSummary.total} pieza{planosSummary.total === 1 ? '' : 's'} en total. Las que tienen plano irán a
-              torno o perfiladora; las demás a CNC o accesorio.
+              {planosSummary.total} pieza{planosSummary.total === 1 ? '' : 's'} en total. El plano no limita el destino:
+              la diseñadora puede mandar cualquier pieza a CNC, torno, perfiladora o accesorio.
             </p>
             {pathsForPanel.length > 0 && pathsForPanel.length <= 40 ? (
               <ul className="mt-3 max-h-48 space-y-1 overflow-auto text-[12px]">
@@ -303,6 +306,12 @@ export function BodegaSupervisorStep3Panel(props: Props) {
           <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-50/95 via-white to-white px-5 py-4 sm:px-6">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-800/90">Revisión encargado</p>
             <h4 className="mt-1 text-[16px] font-bold text-slate-900">Confirma diseño y planos</h4>
+            {pendingReviewCount > 1 ? (
+              <p className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[12px] font-semibold text-indigo-950">
+                La diseñadora entregó {pendingReviewCount} archivos .x_t. Estás revisando el primero; al confirmarlo
+                aparecerá el siguiente.
+              </p>
+            ) : null}
           </div>
           <div className="px-5 py-4 sm:px-6">{renderFolderBlock(pendingReview)}</div>
         </div>

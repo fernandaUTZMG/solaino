@@ -23,10 +23,10 @@ import { DesignPathIdentity } from './DesignPathIdentity.tsx'
 import { BodegaPiecePlanoAttach } from './BodegaPiecePlanoAttach.tsx'
 
 const DESTINO_INFO: { id: ProgrammerBucket; label: string; hint: string }[] = [
-  { id: 'cnc', label: 'CNC', hint: 'Sin plano · programa y maquina' },
-  { id: 'torno', label: 'Torno', hint: 'Con plano · sin tiempo' },
-  { id: 'perfilado', label: 'Perfiladora', hint: 'Con plano · sin tiempo' },
-  { id: 'accesorios', label: 'Accesorio', hint: 'Sin plano · sin tiempo' },
+  { id: 'cnc', label: 'CNC', hint: 'Programa y maquina' },
+  { id: 'torno', label: 'Torno', hint: 'Va a taller · sin tiempo' },
+  { id: 'perfilado', label: 'Perfiladora', hint: 'Va a taller · sin tiempo' },
+  { id: 'accesorios', label: 'Accesorio', hint: 'Sin proceso' },
 ]
 
 function countBucket(pieces: BodegaProjectPieceRow[], bucket: ProgrammerBucket): number {
@@ -77,7 +77,8 @@ export function BodegaDisenoDestinosPanel(props: Props) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
-  const [sinPlanoSearch, setSinPlanoSearch] = useState('')
+  const [pendingSearch, setPendingSearch] = useState('')
+  const [assignedSearch, setAssignedSearch] = useState('')
 
   async function reloadKeepingScroll() {
     await withDeliveryScrollRestore(() => props.onReload())
@@ -91,37 +92,13 @@ export function BodegaDisenoDestinosPanel(props: Props) {
       .filter((p): p is string => Boolean(p && filterSwPartZipPaths([p]).length > 0))
   }, [props.designPaths, props.pieces])
 
-  const pendingWithPlano = useMemo(() => {
-    return partPaths.filter((path) => {
-      const piece = pieceForZipPath(props.pieces, path)
-      return !hasBucket(piece) && piece != null && pieceHasPlano(piece, props.designPaths)
-    })
-  }, [partPaths, props.pieces, props.designPaths])
+  const pending = useMemo(() => {
+    return partPaths.filter((path) => !hasBucket(pieceForZipPath(props.pieces, path)))
+  }, [partPaths, props.pieces])
 
-  const pendingSinPlano = useMemo(() => {
-    return partPaths.filter((path) => {
-      const piece = pieceForZipPath(props.pieces, path)
-      if (hasBucket(piece)) return false
-      if (!piece) return true
-      return !pieceHasPlano(piece, props.designPaths)
-    })
-  }, [partPaths, props.pieces, props.designPaths])
-
-  const cncSinPlanoPaths = useMemo(() => {
-    return partPaths.filter((path) => {
-      const piece = pieceForZipPath(props.pieces, path)
-      return piece?.programmer_bucket === 'cnc' && !pieceHasPlano(piece, props.designPaths)
-    })
-  }, [partPaths, props.pieces, props.designPaths])
-
-  const filteredPendingSinPlano = useMemo(
-    () => pendingSinPlano.filter((p) => pathMatchesSearch(p, sinPlanoSearch)),
-    [pendingSinPlano, sinPlanoSearch],
-  )
-
-  const filteredCncForAccesorio = useMemo(
-    () => cncSinPlanoPaths.filter((p) => pathMatchesSearch(p, sinPlanoSearch)),
-    [cncSinPlanoPaths, sinPlanoSearch],
+  const filteredPending = useMemo(
+    () => pending.filter((p) => pathMatchesSearch(p, pendingSearch)),
+    [pending, pendingSearch],
   )
 
   const assignmentComplete = useMemo(
@@ -216,11 +193,11 @@ export function BodegaDisenoDestinosPanel(props: Props) {
     }
   }
 
-  async function assignAllPendingSinPlanoToCnc() {
+  async function assignAllPendingToCnc() {
     if (!canEdit || props.routesLocked) return
-    const paths = [...pendingSinPlano]
+    const paths = [...pending]
     if (paths.length === 0) {
-      setOkMsg('No hay piezas pendientes sin plano.')
+      setOkMsg('No hay piezas pendientes.')
       return
     }
     setBusy(true)
@@ -238,7 +215,7 @@ export function BodegaDisenoDestinosPanel(props: Props) {
         await props.onReload()
       })
       setOkMsg(
-        `${paths.length} pieza(s) a CNC. Busca por nombre las que son accesorio y cámbialas con el botón Accesorio.`,
+        `${paths.length} pieza(s) a CNC. En «Ya dirigidas» busca por nombre las que van a torno, perfiladora o accesorio y cámbialas.`,
       )
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'No se pudieron predeterminar a CNC')
@@ -266,7 +243,7 @@ export function BodegaDisenoDestinosPanel(props: Props) {
   async function confirmAssignment() {
     if (!canEdit || props.routesLocked) return
     if (!assignmentComplete) {
-      setErr('Con plano → torno o perfiladora. Sin plano → CNC o accesorio.')
+      setErr('Falta elegir destino (CNC, torno, perfiladora o accesorio) en algunas piezas.')
       return
     }
     setBusy(true)
@@ -285,6 +262,7 @@ export function BodegaDisenoDestinosPanel(props: Props) {
   }
 
   const assigned = props.pieces.filter(hasBucket)
+  const filteredAssigned = assigned.filter((p) => pathMatchesSearch(p.source_path ?? p.label, assignedSearch))
 
   return (
     <div className="space-y-4">
@@ -321,8 +299,8 @@ export function BodegaDisenoDestinosPanel(props: Props) {
         <p className="text-[14px] font-bold text-section-navy">Adjuntar planos PDF aquí</p>
         <p className="mt-1 text-[13px] leading-relaxed text-slate-700">
           El PDF debe llamarse <strong>igual que la pieza</strong> (ej. pieza «Buje» →{' '}
-          <span className="font-mono">Buje.pdf</span>). Al vincularse pasa a «Con plano» para elegir torno o
-          perfiladora.
+          <span className="font-mono">Buje.pdf</span>). Al vincularse la pieza muestra el badge «Plano listo». El plano
+          no limita el destino: cualquier pieza puede ir a CNC, torno, perfiladora o accesorio.
         </p>
         {canEdit && !props.routesLocked ? (
           <label
@@ -339,9 +317,10 @@ export function BodegaDisenoDestinosPanel(props: Props) {
               className="hidden"
               disabled={busy}
               onChange={(e) => {
-                const list = e.target.files
+                // Copiar antes de limpiar: `files` es una lista viva y `value = ''` la vacía.
+                const picked = Array.from(e.target.files ?? [])
                 e.currentTarget.value = ''
-                if (list?.length) void onBulkPlanos(list)
+                if (picked.length > 0) void onBulkPlanos(picked)
               }}
             />
           </label>
@@ -351,25 +330,25 @@ export function BodegaDisenoDestinosPanel(props: Props) {
       <p className="text-[13px] text-slate-600">
         CNC {countBucket(props.pieces, 'cnc')} · Torno {countBucket(props.pieces, 'torno')} · Perfiladora{' '}
         {countBucket(props.pieces, 'perfilado')} · Accesorio {countBucket(props.pieces, 'accesorios')} · Pendientes{' '}
-        {pendingWithPlano.length + pendingSinPlano.length}
+        {pending.length}
       </p>
 
       <PendingSection
-        title="Con plano — Torno o Perfiladora"
-        subtitle="Elige el destino. No llevan tiempo de programación."
-        empty={
-          partPaths.length === 0
-            ? 'Aún no hay piezas del ensamble.'
-            : 'Todavía no hay planos vinculados. Usa «Seleccionar planos PDF» arriba.'
+        title={`Pendientes de destino (${pending.length})`}
+        subtitle="Cada pieza puede ir a CNC, torno, perfiladora o accesorio, tenga plano o no."
+        empty={partPaths.length === 0 ? 'Aún no hay piezas del ensamble.' : 'Todas las piezas ya tienen destino.'}
+        paths={filteredPending}
+        totalCount={pending.length}
+        searchValue={pendingSearch}
+        onSearchChange={setPendingSearch}
+        bulkCncLabel={
+          canEdit && !props.routesLocked && pending.length > 0 ? `Predeterminar ${pending.length} a CNC` : null
         }
-        paths={pendingWithPlano}
+        onBulkCnc={() => void assignAllPendingToCnc()}
         pieces={props.pieces}
         designPaths={props.designPaths}
         projectFolio={props.projectFolio}
-        options={[
-          { id: 'torno', label: 'Torno', hint: 'Sin tiempo' },
-          { id: 'perfilado', label: 'Perfiladora', hint: 'Sin tiempo' },
-        ]}
+        options={DESTINO_INFO}
         busy={busy}
         locked={props.routesLocked}
         canEdit={canEdit}
@@ -381,149 +360,35 @@ export function BodegaDisenoDestinosPanel(props: Props) {
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-[14px] font-bold text-section-navy">Sin plano — CNC o Accesorio</p>
-          <p className="mt-0.5 text-[12px] text-slate-500">
-            Predetermina todas a CNC y busca por nombre las pocas que son accesorio para cambiarlas.
+          <p className="text-[14px] font-bold text-section-navy">Ya dirigidas ({assigned.length})</p>
+          <p className="text-[12px] text-slate-500">
+            Solo CNC llega a la programadora. Puedes cambiar el destino a cualquiera de los cuatro.
           </p>
-        </div>
-
-        <div className="space-y-3 border-b border-slate-100 bg-white px-4 py-3">
-          {canEdit && !props.routesLocked && pendingSinPlano.length > 0 ? (
-            <button
-              type="button"
-              disabled={busy}
-              className="min-h-[44px] w-full rounded-xl bg-section-navy px-4 py-2.5 text-[13px] font-bold text-white shadow-sm hover:brightness-110 disabled:opacity-50 sm:w-auto"
-              onClick={() => void assignAllPendingSinPlanoToCnc()}
-            >
-              {busy
-                ? 'Asignando…'
-                : `Predeterminar ${pendingSinPlano.length} a CNC`}
-            </button>
-          ) : null}
-
-          <label className="block text-[12px] font-semibold text-slate-700">
-            Buscar pieza (accesorio)
-            <input
-              type="search"
-              value={sinPlanoSearch}
-              onChange={(e) => setSinPlanoSearch(e.target.value)}
-              placeholder="Escribe el nombre… ej. tornillo, arandela"
-              className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-slate-900 shadow-sm outline-none ring-section-navy/30 focus:ring-2"
-            />
-          </label>
-        </div>
-
-        {pendingSinPlano.length > 0 ? (
-          <div>
-            <p className="border-b border-slate-100 bg-amber-50/80 px-4 py-2 text-[12px] font-semibold text-amber-950">
-              Pendientes ({filteredPendingSinPlano.length}
-              {sinPlanoSearch.trim() ? ` de ${pendingSinPlano.length}` : ''})
-            </p>
-            {filteredPendingSinPlano.length === 0 ? (
-              <p className="px-4 py-4 text-[13px] text-slate-500">Ninguna pendiente coincide con la búsqueda.</p>
-            ) : (
-              <ol className="max-h-72 overflow-auto">
-                {filteredPendingSinPlano.map((path, i) => (
-                  <li
-                    key={path}
-                    className={[
-                      'flex flex-col gap-2 border-b border-slate-100 px-4 py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between',
-                      i % 2 === 0 ? 'bg-white' : 'bg-slate-50/70',
-                    ].join(' ')}
-                  >
-                    <div className="min-w-0">
-                      <DesignPathIdentity path={path} compact />
-                      <span className="mt-1 inline-block rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                        Sin plano
-                      </span>
-                    </div>
-                    <DestinoBtns
-                      path={path}
-                      options={[
-                        { id: 'cnc', label: 'CNC', hint: 'Programa y maquina' },
-                        { id: 'accesorios', label: 'Accesorio', hint: 'Sin proceso' },
-                      ]}
-                      busy={busy}
-                      locked={props.routesLocked}
-                      canEdit={canEdit}
-                      onPick={assignPath}
-                    />
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-        ) : (
-          <p className="px-4 py-3 text-[13px] text-slate-500">No hay piezas sin plano pendientes.</p>
-        )}
-
-        {cncSinPlanoPaths.length > 0 ? (
-          <div className="border-t border-slate-200">
-            <p className="border-b border-slate-100 bg-sky-50/90 px-4 py-2 text-[12px] font-semibold text-sky-950">
-              Ya en CNC ({cncSinPlanoPaths.length}) — busca por nombre y pásalas a Accesorio
-            </p>
-            {!sinPlanoSearch.trim() ? (
-              <p className="px-4 py-4 text-[13px] text-slate-500">
-                Escribe arriba el nombre del accesorio (ej. tornillo) para encontrarlo rápido y marcar{' '}
-                <strong>→ Accesorio</strong>.
-              </p>
-            ) : filteredCncForAccesorio.length === 0 ? (
-              <p className="px-4 py-4 text-[13px] text-slate-500">Ninguna pieza CNC coincide con «{sinPlanoSearch.trim()}».</p>
-            ) : (
-              <ol className="max-h-80 overflow-auto">
-                {filteredCncForAccesorio.map((path, i) => (
-                  <li
-                    key={path}
-                    className={[
-                      'flex flex-col gap-2 border-b border-slate-100 px-4 py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between',
-                      i % 2 === 0 ? 'bg-white' : 'bg-slate-50/70',
-                    ].join(' ')}
-                  >
-                    <div className="min-w-0">
-                      <DesignPathIdentity path={path} compact />
-                      <span className="mt-1 inline-block rounded-lg bg-section-navy/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-section-navy">
-                        CNC
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={busy || props.routesLocked || !canEdit}
-                      className="min-h-[36px] shrink-0 rounded-lg border border-amber-400 bg-amber-50 px-3 py-1.5 text-[12px] font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-                      onClick={() => void assignPath(path, 'accesorios')}
-                    >
-                      → Accesorio
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-[14px] font-bold text-section-navy">Ya dirigidas</p>
-          <p className="text-[12px] text-slate-500">Solo CNC llega a la programadora.</p>
         </div>
         {assigned.length === 0 ? (
           <p className="px-4 py-6 text-center text-[13px] text-slate-500">Todavía no hay destinos.</p>
         ) : (
+          <>
+          <label className="block border-b border-slate-100 px-4 py-3 text-[12px] font-semibold text-slate-700">
+            Buscar pieza para cambiar su destino
+            <input
+              type="search"
+              value={assignedSearch}
+              onChange={(e) => setAssignedSearch(e.target.value)}
+              placeholder="Escribe el nombre… ej. tornillo, buje"
+              className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-slate-900 shadow-sm outline-none ring-section-navy/30 focus:ring-2"
+            />
+          </label>
+          {filteredAssigned.length === 0 ? (
+            <p className="px-4 py-6 text-center text-[13px] text-slate-500">
+              Ninguna pieza coincide con «{assignedSearch.trim()}».
+            </p>
+          ) : (
           <ul className="divide-y divide-slate-100">
-            {assigned.map((p) => {
+            {filteredAssigned.map((p) => {
               const path = p.source_path ?? p.label
               const bucket = p.programmer_bucket
               const withPlano = pieceHasPlano(p, props.designPaths)
-              const options =
-                bucket === 'torno' || bucket === 'perfilado'
-                  ? ([
-                      { id: 'torno' as const, label: 'Torno', hint: 'Sin tiempo' },
-                      { id: 'perfilado' as const, label: 'Perfiladora', hint: 'Sin tiempo' },
-                    ] as const)
-                  : ([
-                      { id: 'cnc' as const, label: 'CNC', hint: 'Programa' },
-                      { id: 'accesorios' as const, label: 'Accesorio', hint: 'Sin proceso' },
-                    ] as const)
               return (
                 <li key={p.id} className="px-4 py-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -547,7 +412,7 @@ export function BodegaDisenoDestinosPanel(props: Props) {
                         <DestinoBtns
                           path={p.source_path}
                           current={bucket}
-                          options={[...options]}
+                          options={DESTINO_INFO}
                           busy={busy}
                           locked={props.routesLocked}
                           canEdit={canEdit}
@@ -584,6 +449,8 @@ export function BodegaDisenoDestinosPanel(props: Props) {
               )
             })}
           </ul>
+          )}
+          </>
         )}
       </section>
 
@@ -615,6 +482,11 @@ function PendingSection(props: {
   subtitle: string
   empty: string
   paths: string[]
+  totalCount: number
+  searchValue: string
+  onSearchChange: (value: string) => void
+  bulkCncLabel?: string | null
+  onBulkCnc?: () => void
   pieces: BodegaProjectPieceRow[]
   designPaths: string[]
   projectFolio: string
@@ -633,8 +505,36 @@ function PendingSection(props: {
         <p className="text-[14px] font-bold text-section-navy">{props.title}</p>
         <p className="text-[12px] text-slate-500">{props.subtitle}</p>
       </div>
+      {props.totalCount > 0 ? (
+        <div className="space-y-3 border-b border-slate-100 bg-white px-4 py-3">
+          {props.bulkCncLabel ? (
+            <button
+              type="button"
+              disabled={props.busy}
+              className="min-h-[44px] w-full rounded-xl bg-section-navy px-4 py-2.5 text-[13px] font-bold text-white shadow-sm hover:brightness-110 disabled:opacity-50 sm:w-auto"
+              onClick={() => props.onBulkCnc?.()}
+            >
+              {props.busy ? 'Asignando…' : props.bulkCncLabel}
+            </button>
+          ) : null}
+          <label className="block text-[12px] font-semibold text-slate-700">
+            Buscar pieza
+            <input
+              type="search"
+              value={props.searchValue}
+              onChange={(e) => props.onSearchChange(e.target.value)}
+              placeholder="Escribe el nombre… ej. tornillo, buje"
+              className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-slate-900 shadow-sm outline-none ring-section-navy/30 focus:ring-2"
+            />
+          </label>
+        </div>
+      ) : null}
       {props.paths.length === 0 ? (
-        <p className="px-4 py-6 text-center text-[13px] text-slate-500">{props.empty}</p>
+        <p className="px-4 py-6 text-center text-[13px] text-slate-500">
+          {props.totalCount > 0 && props.searchValue.trim()
+            ? `Ninguna pieza pendiente coincide con «${props.searchValue.trim()}».`
+            : props.empty}
+        </p>
       ) : (
         <ol>
           {props.paths.map((path, i) => {

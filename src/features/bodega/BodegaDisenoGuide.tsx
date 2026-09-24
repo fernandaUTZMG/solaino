@@ -25,7 +25,7 @@ const STEPS = [
     n: 4,
     title: 'Destinos',
     short: 'CNC · Torno · Perfil',
-    desc: 'Solo después de la confirmación: con plano eliges torno o perfiladora; sin plano, CNC o accesorio.',
+    desc: 'Solo después de la confirmación: cada pieza va a CNC, torno, perfiladora o accesorio, tenga plano o no.',
   },
   {
     n: 5,
@@ -41,7 +41,7 @@ function roleIntro(role: AppRole): { title: string; lines: string[] } {
       title: 'Tu trabajo aquí',
       lines: [
         'Al entrar, tu tiempo de diseño empieza a correr.',
-        'Entrega el .x_t y los PDF. Cuando el encargado confirme, separas torno/perfil o CNC/accesorio.',
+        'Entrega el .x_t y los PDF. Cuando el encargado confirme, eliges el destino de cada pieza: CNC, torno, perfiladora o accesorio.',
       ],
     }
   }

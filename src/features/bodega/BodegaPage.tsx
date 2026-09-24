@@ -139,6 +139,7 @@ import { BodegaPiecesWorkflowPanel } from './BodegaPiecesWorkflowPanel.tsx'
 import { BodegaDesignPiecePlanosPanel } from './BodegaDesignPiecePlanosPanel.tsx'
 import { BodegaDesignZipMissingPlanosModal } from './BodegaDesignZipMissingPlanosModal.tsx'
 import { BodegaDisenoWorkspace } from './BodegaDisenoWorkspace.tsx'
+import type { DesignEntregaMode, DesignEntregaSubmit } from './BodegaDisenoTabPanel.tsx'
 import { BodegaDisenoDestinosPanel } from './BodegaDisenoDestinosPanel.tsx'
 import { BodegaProgramacionWorkspace } from './BodegaProgramacionWorkspace.tsx'
 import { BodegaProjectClockPanel } from './BodegaProjectClockPanel.tsx'
@@ -1242,9 +1243,20 @@ export function BodegaPage(props: {
     else setError('No se pudo generar el enlace de descarga.')
   }
 
-  async function executeDesignZipUpload(file: File, planos: File[] = []) {
+  /**
+   * Sube una o varias entregas de diseño. Cada archivo queda como su propia versión para que el
+   * encargado la confirme por separado; `mode` decide si las nuevas se suman a las pendientes o las reemplazan.
+   */
+  async function executeDesignZipUpload(
+    files: File[],
+    planos: File[] = [],
+    mode: DesignEntregaMode = 'sumar',
+    keepPieceNamesByFile: Record<string, string[]> = {},
+  ) {
     if (!designModalProject) return
     if (!canUploadDesign) return
+    const list = files.filter(Boolean)
+    if (list.length === 0) return
     setDesignUploadBusy(true)
     setDesignUploadPhase('Subiendo entrega…')
     setError(null)
@@ -1255,27 +1267,43 @@ export function BodegaPage(props: {
       st === 'diseno_parcial' ||
       entregaRows.some((x) => x.status === 'requiere_cambios')
     try {
-      await runDesignZipUpload({
-        project: {
-          id: designModalProject.id,
-          folio: designModalProject.folio,
-          status: designModalProject.status,
-        },
-        file,
-        comment: designCommentDraft.trim() || null,
-        existingDesignVersions: designVersions.filter(
-          (x) => (x.package_category ?? 'entrega_diseno') === 'entrega_diseno',
-        ),
-        uploaderRole: props.role,
-        onPhase: (p) => setDesignUploadPhase(p),
-        uploadOrigin: 'bodega_entregas',
-      })
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i]!
+        const prefix = list.length > 1 ? `Archivo ${i + 1} de ${list.length}: ` : ''
+        await runDesignZipUpload({
+          project: {
+            id: designModalProject.id,
+            folio: designModalProject.folio,
+            // Tras el primer archivo el proyecto ya quedó en revisión: evita repetir el cambio de estado.
+            status: i === 0 ? designModalProject.status : 'revision_diseno',
+          },
+          file,
+          comment: designCommentDraft.trim() || null,
+          existingDesignVersions: entregaRows,
+          uploaderRole: props.role,
+          onPhase: (p) => setDesignUploadPhase(prefix + p),
+          uploadOrigin: 'bodega_entregas',
+          // Solo el primer archivo puede reemplazar lo pendiente; los demás nunca se anulan entre sí.
+          supersedePending: mode === 'corregir' && i === 0,
+          keepPieceNames: keepPieceNamesByFile[file.name],
+        })
+      }
 
       let planoNotice = ''
-      if (isXtDesignFile(file) && planos.length > 0) {
+      const xtFiles = list.filter((f) => isXtDesignFile(f))
+      if (xtFiles.length > 0 && planos.length > 0) {
         setDesignUploadPhase('Vinculando planos…')
-        const parsed = await parseXtFile(file)
-        const pieceNames = parsed.pieces.map((p) => p.name)
+        const pieceNames: string[] = []
+        for (const f of xtFiles) {
+          // Las piezas que la diseñadora quitó no deben recibir plano.
+          const kept = keepPieceNamesByFile[f.name]
+          if (kept) {
+            pieceNames.push(...kept)
+            continue
+          }
+          const parsed = await parseXtFile(f)
+          for (const p of parsed.pieces) pieceNames.push(p.name)
+        }
         const auto = await applyDesignPlanosAutoAssign({
           projectId: designModalProject.id,
           projectFolio: designModalProject.folio,
@@ -1296,10 +1324,14 @@ export function BodegaPage(props: {
       await refreshModalProjectFromServer(designModalProject.id)
       await loadProjectDeliveries(designModalProject.id)
       setDesignCommentDraft('')
+      const cuantos =
+        list.length > 1 ? `${list.length} ensambles .x_t entregados` : 'Ensamble .x_t entregado'
       setBodegaNotice(
         (esCorreccionUpload
-          ? 'Corrección entregada. El reloj de esta ronda se pausó; el supervisor revisará las piezas del .x_t.'
-          : 'Ensamble .x_t entregado. El reloj de diseño se pausó mientras el supervisor revisa.') + planoNotice,
+          ? `Corrección entregada (${cuantos.toLowerCase()}). El reloj de esta ronda se pausó; el supervisor revisará las piezas.`
+          : `${cuantos}. El reloj de diseño se pausó mientras el supervisor revisa${
+              list.length > 1 ? ' cada archivo' : ''
+            }.`) + planoNotice,
       )
       props.onBodegaDeliveriesChanged?.()
     } catch (e) {
@@ -1310,13 +1342,17 @@ export function BodegaPage(props: {
     }
   }
 
-  async function uploadDesignZip(file: File, planos: File[] = []) {
+  async function uploadDesignZip(submit: DesignEntregaSubmit) {
     if (!designModalProject) return
     if (!canUploadDesign) return
-    if (isXtDesignFile(file)) {
-      await executeDesignZipUpload(file, planos)
+    const list = submit.files.filter(Boolean)
+    if (list.length === 0) return
+    if (list.every((f) => isXtDesignFile(f))) {
+      await executeDesignZipUpload(list, submit.planos, submit.mode, submit.keepPieceNamesByFile)
       return
     }
+    // Carpeta comprimida: se analiza antes para avisar de las piezas sin plano PDF.
+    const file = list[0]!
     setDesignUploadBusy(true)
     setDesignUploadPhase('Analizando ZIP…')
     setError(null)
@@ -1331,7 +1367,7 @@ export function BodegaPage(props: {
         )
         return
       }
-      await executeDesignZipUpload(file)
+      await executeDesignZipUpload([file])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo analizar la entrega de diseño')
     } finally {
@@ -1368,7 +1404,7 @@ export function BodegaPage(props: {
     const pending = designZipMissingPlanosPending
     if (!pending || designUploadBusy) return
     setDesignZipMissingPlanosPending(null)
-    await executeDesignZipUpload(pending.file)
+    await executeDesignZipUpload([pending.file])
   }
 
   async function confirmDesignFoldersForProject(args: {
@@ -3295,7 +3331,7 @@ export function BodegaPage(props: {
                   designUploadPhase={designUploadPhase}
                   designEntregaVersions={designEntregaVersions}
                   clienteInfoVersions={clienteInfoVersions}
-                  onUploadDesign={(f, planos) => void uploadDesignZip(f, planos)}
+                  onUploadDesign={(submit) => void uploadDesignZip(submit)}
                   onDownload={(v) => void downloadDesignZip(v)}
                   formatDateTime={(d) => formatDateTimeEs(d)}
                   destinosComplete={programmingRoutesLocked}

@@ -4,7 +4,7 @@ import { canReviewBodegaDesign } from '../../lib/roles'
 import type { ProjectDesignVersionRow } from '../../lib/designVersionsRepo'
 import { nextDesignVersionPendingReview } from '../../lib/designVersionsRepo'
 import { BodegaDisenoGuide } from './BodegaDisenoGuide.tsx'
-import { BodegaDisenoTabPanel } from './BodegaDisenoTabPanel.tsx'
+import { BodegaDisenoTabPanel, type DesignEntregaSubmit } from './BodegaDisenoTabPanel.tsx'
 import { disenoStepBody, disenoStepCard, disenoStepHeader, disenoStepNumber } from './bodegaDisenoUi.ts'
 
 type Props = {
@@ -15,7 +15,7 @@ type Props = {
   designUploadPhase: string
   designEntregaVersions: ProjectDesignVersionRow[]
   clienteInfoVersions: ProjectDesignVersionRow[]
-  onUploadDesign: (file: File, planos?: File[]) => void
+  onUploadDesign: (submit: DesignEntregaSubmit) => void
   onDownload: (v: ProjectDesignVersionRow) => void
   formatDateTime: (d: Date) => string
   destinosComplete?: boolean
