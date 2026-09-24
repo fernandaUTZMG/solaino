@@ -2,11 +2,10 @@ import { useMemo, useRef, type ReactNode } from 'react'
 import type { AppRole } from '../../lib/roles'
 import { canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/roles'
 import type { CncModuleKind } from '../../lib/machineVersionsRepo'
-import {
-  aggregateBusinessMinutesByLane,
-  workLaneElapsedSeconds,
-  type BodegaWorkIntervalRow,
-} from '../../lib/bodegaWorkIntervalsRepo'
+import { programmingElapsedSeconds } from '../../lib/bodegaProjectOrdenTimes'
+import type { BodegaPieceIntervalRow } from '../../lib/bodegaPieceIntervalsRepo'
+import type { BodegaWorkIntervalRow } from '../../lib/bodegaWorkIntervalsRepo'
+import { nowDate } from '../../lib/serverNow'
 import { BodegaProgramacionGuide } from './BodegaProgramacionGuide.tsx'
 import { BodegaProgramacionTabPanel } from './BodegaProgramacionTabPanel.tsx'
 import { BodegaLiveClock } from './BodegaLiveClock.tsx'
@@ -44,20 +43,23 @@ type Props = {
   programmingPanel: ReactNode | null
   timesPanel?: ReactNode | null
   workIntervals?: BodegaWorkIntervalRow[]
+  pieceIntervals?: BodegaPieceIntervalRow[]
 }
 
 export function BodegaProgramacionWorkspace(props: Props) {
   const canWork = canUploadBodegaMachine(props.role) || canManageBodegaLikeAdmin(props.role)
   const showModuleTabs = props.routesLocked && canWork && props.cncModuleTabsVisible.length > 0
   const intervals = props.workIntervals ?? []
+  const pieceIntervals = props.pieceIntervals ?? []
   const programmingDone = Boolean(props.allProgrammingFinished)
-  const clockOpen = intervals.some((r) => r.lane === 'cnc_programacion' && !r.ended_at)
-  // No seguir tickeando ni contando si la programación ya terminó (aunque el intervalo tarde en cerrarse).
+  const clockOpen =
+    intervals.some((r) => (r.lane === 'cnc_programacion' || r.lane === 'cnc_torno') && !r.ended_at) ||
+    pieceIntervals.some((r) => (r.lane === 'programacion_cnc' || r.lane === 'programacion_torno') && !r.ended_at)
   const clockLive = clockOpen && !programmingDone
   const clockNow = useLiveClockTick(clockLive)
   const freezeAtRef = useRef<string | null>(null)
   if (programmingDone) {
-    if (freezeAtRef.current == null) freezeAtRef.current = new Date().toISOString()
+    if (freezeAtRef.current == null) freezeAtRef.current = nowDate().toISOString()
   } else {
     freezeAtRef.current = null
   }
@@ -65,11 +67,11 @@ export function BodegaProgramacionWorkspace(props: Props) {
     if (!programmingDone || freezeAtRef.current == null) return intervals
     const ended = freezeAtRef.current
     return intervals.map((r) =>
-      r.lane === 'cnc_programacion' && !r.ended_at ? { ...r, ended_at: ended } : r,
+      (r.lane === 'cnc_programacion' || r.lane === 'cnc_torno') && !r.ended_at ? { ...r, ended_at: ended } : r,
     )
   }, [intervals, programmingDone])
-  const clockSec = workLaneElapsedSeconds(displayIntervals, 'cnc_programacion', clockNow)
-  const clockMins = aggregateBusinessMinutesByLane(displayIntervals, clockNow).get('cnc_programacion') ?? 0
+  const clockSec = programmingElapsedSeconds(displayIntervals, pieceIntervals, clockNow)
+  const clockMins = clockSec / 60
 
   return (
     <div className="space-y-5">
@@ -105,7 +107,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
           }
           tone="navy"
           businessMinutes={clockMins > 0 ? clockMins : undefined}
-          businessMinutesLabel="Min. hábiles"
+          businessMinutesLabel="Acumulado"
         />
       </StepBlock>
 
@@ -190,7 +192,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
           <div className={progStepHeader}>
             <div>
               <h3 className="text-[15px] font-bold text-section-navy">Tiempos por línea</h3>
-              <p className="mt-0.5 text-[13px] text-slate-500">Minutos hábiles acumulados en programación.</p>
+              <p className="mt-0.5 text-[13px] text-slate-500">Tiempo de reloj real acumulado en programación.</p>
             </div>
           </div>
           <div className={progStepBody}>{props.timesPanel}</div>

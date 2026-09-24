@@ -1,4 +1,5 @@
 import { getSupabase } from './supabaseClient'
+import { intervalDate, spanSeconds } from './intervalTime'
 import { businessMinutesBetween } from './workHours'
 
 export type BodegaPieceLane =
@@ -163,9 +164,7 @@ export function pieceLaneElapsedSeconds(
   const nowMs = nowRef.getTime()
   for (const r of rows) {
     if (r.piece_id !== pieceId || r.lane !== lane) continue
-    const start = new Date(r.started_at).getTime()
-    const end = r.ended_at ? new Date(r.ended_at).getTime() : nowMs
-    total += Math.max(0, Math.floor((end - start) / 1000))
+    total += spanSeconds(r.started_at, r.ended_at, nowMs)
   }
   return total
 }
@@ -176,8 +175,9 @@ export function aggregatePieceMinutesByLane(
 ): Map<BodegaPieceLane, number> {
   const m = new Map<BodegaPieceLane, number>()
   for (const r of rows) {
-    const start = new Date(r.started_at)
-    const end = r.ended_at ? new Date(r.ended_at) : nowRef
+    const start = intervalDate(r.started_at)
+    if (!start) continue
+    const end = r.ended_at ? intervalDate(r.ended_at) ?? nowRef : nowRef
     const mins = businessMinutesBetween(start, end)
     if (mins <= 0) continue
     const lane = r.lane as BodegaPieceLane
@@ -194,9 +194,8 @@ export function aggregatePieceWallMinutesByLane(
   const m = new Map<BodegaPieceLane, number>()
   const nowMs = nowRef.getTime()
   for (const r of rows) {
-    const start = new Date(r.started_at).getTime()
-    const end = r.ended_at ? new Date(r.ended_at).getTime() : nowMs
-    const mins = Math.max(0, (end - start) / 60000)
+    const secs = spanSeconds(r.started_at, r.ended_at, nowMs)
+    const mins = secs / 60
     if (mins < 1 / 60) continue
     const lane = r.lane as BodegaPieceLane
     m.set(lane, (m.get(lane) ?? 0) + mins)

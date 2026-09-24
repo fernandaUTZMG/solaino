@@ -1,3 +1,5 @@
+import { spanSeconds } from './intervalTime'
+import { nowDate } from './serverNow'
 import {
   aggregateBusinessMinutesByLane,
   type BodegaWorkIntervalLane,
@@ -51,27 +53,33 @@ const WORK_MAQUINADO_LANES: BodegaWorkIntervalLane[] = [
 
 const PIECE_PROGRAMACION_LANES: BodegaPieceLane[] = ['programacion_cnc', 'programacion_torno']
 
-function sumLaneMinutes(m: Map<string, number>, lanes: string[]): number {
-  let s = 0
-  for (const lane of lanes) {
-    s += m.get(lane) ?? 0
-  }
-  return s
-}
-
 function sumWorkWallMinutes(
   rows: BodegaWorkIntervalRow[],
   lanes: BodegaWorkIntervalLane[],
   now: Date,
 ): number {
-  const laneSet = new Set<string>(lanes)
-  let s = 0
+  return programmingElapsedSeconds(rows, [], now, lanes, []) / 60
+}
+
+/** Segundos de reloj real de programación (oficina + piezas). Misma cifra en pestaña y cronómetro. */
+export function programmingElapsedSeconds(
+  workIntervals: BodegaWorkIntervalRow[],
+  pieceIntervals: BodegaPieceIntervalRow[],
+  now: Date,
+  workLanes: BodegaWorkIntervalLane[] = WORK_PROGRAMACION_LANES,
+  pieceLanes: BodegaPieceLane[] = PIECE_PROGRAMACION_LANES,
+): number {
   const nowMs = now.getTime()
-  for (const r of rows) {
-    if (!laneSet.has(r.lane)) continue
-    const start = new Date(r.started_at).getTime()
-    const end = r.ended_at ? new Date(r.ended_at).getTime() : nowMs
-    s += Math.max(0, (end - start) / 60000)
+  const workSet = new Set<string>(workLanes)
+  const pieceSet = new Set<string>(pieceLanes)
+  let s = 0
+  for (const r of workIntervals) {
+    if (!workSet.has(r.lane)) continue
+    s += spanSeconds(r.started_at, r.ended_at, nowMs)
+  }
+  for (const r of pieceIntervals) {
+    if (!pieceSet.has(r.lane)) continue
+    s += spanSeconds(r.started_at, r.ended_at, nowMs)
   }
   return s
 }
@@ -81,16 +89,14 @@ export function computeProjectOrdenTimes(args: {
   pieceIntervals: BodegaPieceIntervalRow[]
   nowRef?: Date
 }): ProjectOrdenTimeBreakdown {
-  const now = args.nowRef ?? new Date()
+  const now = args.nowRef ?? nowDate()
   const byWork = aggregateBusinessMinutesByLane(args.workIntervals, now)
   const byPiece = aggregatePieceMinutesByLane(args.pieceIntervals, now)
   // Maquinado CNC: minutos de reloj real (la máquina no se limita al horario de oficina).
   const byPieceWall = aggregatePieceWallMinutesByLane(args.pieceIntervals, now)
 
   const disenoMin = byWork.get('diseno') ?? 0
-  const programacionMin =
-    sumLaneMinutes(byWork, WORK_PROGRAMACION_LANES) +
-    sumLaneMinutes(byPiece, PIECE_PROGRAMACION_LANES)
+  const programacionMin = programmingElapsedSeconds(args.workIntervals, args.pieceIntervals, now) / 60
   const maquinadoMin =
     (byPieceWall.get('maquinado') ?? 0) + sumWorkWallMinutes(args.workIntervals, WORK_MAQUINADO_LANES, now)
   const perfiladoMin = byPiece.get('perfilado_operador') ?? 0

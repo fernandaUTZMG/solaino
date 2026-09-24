@@ -52,6 +52,7 @@ import {
 } from '../../lib/piecePhotosRepo'
 import {
   aggregateBusinessMinutesByLane,
+  aggregateWallMinutesByLane,
   fetchWorkIntervals,
   fetchWorkIntervalsForProjects,
   formatWorkMinutesShort,
@@ -150,6 +151,7 @@ import { BodegaProgrammerProgrammingFullscreen } from './BodegaProgrammerProgram
 import { BodegaProjectPiecePhotosWorkspace } from './BodegaProjectPiecePhotosWorkspace.tsx'
 import { BodegaProjectDeliveryFullscreen } from './BodegaProjectDeliveryFullscreen.tsx'
 import { useLiveClockTick } from './useLiveClockTick.ts'
+import { syncServerClock } from '../../lib/serverNow'
 import { OrdenCompraPdfViewerModal } from './OrdenCompraPdfViewerModal.tsx'
 import { OrdenCompraCatalogEditModal } from './OrdenCompraCatalogEditModal.tsx'
 import { ProjectLinkOrdenCompraModal } from './ProjectLinkOrdenCompraModal.tsx'
@@ -673,11 +675,6 @@ export function BodegaPage(props: {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   }, [designVersions])
 
-  const workMinutesByLane = useMemo(
-    () => aggregateBusinessMinutesByLane(workIntervals, new Date()),
-    [workIntervals],
-  )
-
   const programmingRoutesLocked = Boolean(pieceFlowMeta?.programming_routes_confirmed_at)
 
   const cncModuleTabsVisible = useMemo((): CncModuleKind[] => {
@@ -713,6 +710,14 @@ export function BodegaPage(props: {
   const deliveryTimesTicking =
     workIntervals.some((r) => r.ended_at == null) || pieceIntervals.some((r) => r.ended_at == null)
   const deliveryTimesNow = useLiveClockTick(Boolean(designModalProject) && deliveryTimesTicking)
+
+  const workMinutesByLane = useMemo(
+    () =>
+      deliveryTab === 'cnc'
+        ? aggregateWallMinutesByLane(workIntervals, deliveryTimesNow)
+        : aggregateBusinessMinutesByLane(workIntervals, deliveryTimesNow),
+    [deliveryTab, workIntervals, deliveryTimesNow],
+  )
 
   const projectDeliveryTimes = useMemo(() => {
     if (!designModalProject) return null
@@ -927,6 +932,10 @@ export function BodegaPage(props: {
       if (uid) clearStoredBodegaDeliveryWorkspace(uid)
     })()
   }
+
+  useEffect(() => {
+    void syncServerClock()
+  }, [])
 
   useEffect(() => {
     if (!designModalProject) {
@@ -3155,7 +3164,7 @@ export function BodegaPage(props: {
                                 : 'text-slate-800'
                               : 'text-blue-50/95',
                           ].join(' ')}
-                          title="Tiempo hábil registrado en esta etapa"
+                          title="Tiempo registrado en esta etapa"
                         >
                           {formatDeliveryTabTime(projectDeliveryTimes, id)}
                         </span>
@@ -3448,6 +3457,7 @@ export function BodegaPage(props: {
                   cncModuleTabsVisible={cncModuleTabsVisible}
                   onCncModuleTabChange={setCncModuleTab}
                   workIntervals={workIntervals}
+                  pieceIntervals={pieceIntervals}
                   deliveryPanel={
                     canUploadBodegaMachine(props.role) || canManageBodegaLikeAdmin(props.role) ? (
                       <BodegaProgrammerDeliveryPanel

@@ -198,13 +198,13 @@ export function businessMinutesBetween(start: Date, end: Date, schedule: WorkSch
 
   const tz = resolveTimeZone(schedule)
 
-  const a = start.getTime() <= end.getTime() ? start : end
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return 0
 
-  const b = start.getTime() <= end.getTime() ? end : start
+  if (start.getTime() > end.getTime()) return 0
 
+  const a = start
 
-
-  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime())) return 0
+  const b = end
 
   if (a.getTime() === b.getTime()) return 0
 

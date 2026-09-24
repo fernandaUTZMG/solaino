@@ -102,8 +102,8 @@ export function BodegaPieceProgrammingControls(props: Props) {
               ? 'El reloj corre desde que pulsaste Inicio. Sube el archivo y termina cuando acabes.'
               : 'Pulsa Inicio para comenzar a contar el tiempo de esta pieza.'
           }
-          businessMinutes={props.minutes}
-          businessMinutesLabel="Min. hábiles"
+          businessMinutes={elapsedSec / 60}
+          businessMinutesLabel="Acumulado"
           tone="programacion"
         />
       </div>

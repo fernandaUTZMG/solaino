@@ -1,4 +1,5 @@
 import { getSupabase } from './supabaseClient'
+import { intervalDate, spanSeconds } from './intervalTime'
 import { businessMinutesBetween } from './workHours'
 
 export type BodegaWorkIntervalLane =
@@ -126,10 +127,27 @@ export function aggregateBusinessMinutesByLane(
 ): Map<BodegaWorkIntervalLane, number> {
   const m = new Map<BodegaWorkIntervalLane, number>()
   for (const r of rows) {
-    const start = new Date(r.started_at)
-    const end = r.ended_at ? new Date(r.ended_at) : nowRef
+    const start = intervalDate(r.started_at)
+    if (!start) continue
+    const end = r.ended_at ? intervalDate(r.ended_at) ?? nowRef : nowRef
     const mins = businessMinutesBetween(start, end)
     if (mins <= 0) continue
+    const lane = r.lane as BodegaWorkIntervalLane
+    m.set(lane, (m.get(lane) ?? 0) + mins)
+  }
+  return m
+}
+
+/** Minutos de reloj real por carril (misma base que el cronómetro). */
+export function aggregateWallMinutesByLane(
+  rows: BodegaWorkIntervalRow[],
+  nowRef: Date = new Date(),
+): Map<BodegaWorkIntervalLane, number> {
+  const m = new Map<BodegaWorkIntervalLane, number>()
+  const nowMs = nowRef.getTime()
+  for (const r of rows) {
+    const mins = spanSeconds(r.started_at, r.ended_at, nowMs) / 60
+    if (mins < 1 / 60) continue
     const lane = r.lane as BodegaWorkIntervalLane
     m.set(lane, (m.get(lane) ?? 0) + mins)
   }
@@ -146,9 +164,7 @@ export function workLaneElapsedSeconds(
   const nowMs = nowRef.getTime()
   for (const r of rows) {
     if (r.lane !== lane) continue
-    const start = new Date(r.started_at).getTime()
-    const end = r.ended_at ? new Date(r.ended_at).getTime() : nowMs
-    total += Math.max(0, Math.floor((end - start) / 1000))
+    total += spanSeconds(r.started_at, r.ended_at, nowMs)
   }
   return total
 }

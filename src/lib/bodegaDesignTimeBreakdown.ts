@@ -1,3 +1,4 @@
+import { intervalDate } from './intervalTime'
 import { businessMinutesBetween } from './workHours'
 import { formatWorkMinutesShort, type BodegaWorkIntervalRow } from './bodegaWorkIntervalsRepo'
 
@@ -47,7 +48,7 @@ export function computeDesignTimeRounds(
 ): DesignTimeRound[] {
   const designRows = rows
     .filter((r) => r.lane === 'diseno')
-    .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+    .sort((a, b) => (intervalDate(a.started_at)?.getTime() ?? 0) - (intervalDate(b.started_at)?.getTime() ?? 0))
 
   let correctionIndex = 0
   return designRows.map((r, idx) => {
@@ -64,9 +65,9 @@ export function computeDesignTimeRounds(
       round = 1
     }
 
-    const start = new Date(r.started_at)
-    const end = r.ended_at ? new Date(r.ended_at) : nowRef
-    const businessMinutes = businessMinutesBetween(start, end)
+    const start = intervalDate(r.started_at)
+    const end = r.ended_at ? intervalDate(r.ended_at) ?? nowRef : nowRef
+    const businessMinutes = start ? businessMinutesBetween(start, end) : 0
 
     return {
       phase,

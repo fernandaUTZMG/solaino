@@ -4,7 +4,6 @@ import { canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/role
 import type { BodegaProjectPieceRow } from '../../lib/bodegaPiecesRepo'
 import type { ProgrammingExitKind } from '../../lib/bodegaPiecesRepo'
 import {
-  aggregatePieceMinutesByLane,
   fetchPieceIntervalsForProject,
   startPieceInterval,
 } from '../../lib/bodegaPieceIntervalsRepo'
@@ -114,13 +113,10 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
 
   const minsByPiece = useMemo(() => {
     const m = new Map<string, number>()
-    const byPiece = new Map<string, typeof intervalRows>()
-    for (const r of intervalRows) {
-      if (!byPiece.has(r.piece_id)) byPiece.set(r.piece_id, [])
-      byPiece.get(r.piece_id)!.push(r)
-    }
-    for (const [pid, rows] of byPiece) {
-      m.set(pid, aggregatePieceMinutesByLane(rows).get(lane) ?? 0)
+    const now = new Date()
+    const ids = new Set(intervalRows.map((r) => r.piece_id))
+    for (const pid of ids) {
+      m.set(pid, pieceLaneElapsedSeconds(intervalRows, pid, lane, now) / 60)
     }
     return m
   }, [intervalRows, lane])

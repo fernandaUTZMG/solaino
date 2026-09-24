@@ -16,7 +16,7 @@ export function parseHmsToSeconds(input: string): number | null {
 
 /** Reloj HH:MM:SS con ceros a la izquierda (p. ej. 00:05:23). */
 export function formatSecondsAsHms(totalSec: number): string {
-  const sec = Math.max(0, Math.round(totalSec))
+  const sec = Number.isFinite(totalSec) ? Math.max(0, Math.round(totalSec)) : 0
   const h = Math.floor(sec / 3600)
   const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60

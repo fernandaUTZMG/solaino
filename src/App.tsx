@@ -46,6 +46,7 @@ import { isSupabaseConfigured } from './env.ts'
 import { humanizeProfileLoadError, loadSessionProfile, signOut, type MyProfile, useSession } from './lib/auth.ts'
 import { fetchPendingPasswordRecoveryCount } from './lib/passwordRecoveryRepo.ts'
 import { getSupabase } from './lib/supabaseClient.ts'
+import { syncServerClock } from './lib/serverNow.ts'
 import {
   canAccessAdminTools,
   canManageUsers,
@@ -263,6 +264,9 @@ function App() {
   // Solo al iniciar sesión / cambiar de usuario — no en cada TOKEN_REFRESHED
   // (eso sacaba al usuario de la sección al volver de otra pantalla).
   const sessionUserId = session?.user?.id ?? null
+  useEffect(() => {
+    void syncServerClock()
+  }, [])
   useEffect(() => {
     if (!showAuth) return
     if (!sessionUserId) {

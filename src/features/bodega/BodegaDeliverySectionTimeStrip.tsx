@@ -45,7 +45,9 @@ export function BodegaDeliverySectionTimeStrip(props: Props) {
           <p className={[theme.headerSubtitle, 'mt-0.5 text-[11px]'].join(' ')}>{props.detail}</p>
         ) : (
           <p className={[theme.headerSubtitle, 'mt-0.5 text-[11px]'].join(' ')}>
-            Minutos hábiles (lun–vie, horario de planta)
+            {props.tab === 'cnc' || props.tab === 'maquinado'
+              ? 'Tiempo de reloj real (igual al cronómetro)'
+              : 'Minutos hábiles (lun–vie, horario de planta)'}
             {tabOpen ? ' · hay reloj en curso' : ''}
           </p>
         )}
