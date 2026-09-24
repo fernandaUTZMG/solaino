@@ -841,7 +841,7 @@ export function BodegaPage(props: {
   }
 
   async function maybeStartProgrammingClockForViewer(project: BodegaProjectRow) {
-    if (props.role !== 'programadora_maquinaria') return
+    if (!canUploadBodegaMachine(props.role) && !canManageBodegaLikeAdmin(props.role)) return
     const st = project.status
     if (
       ![
@@ -1114,7 +1114,7 @@ export function BodegaPage(props: {
 
   useEffect(() => {
     if (!designModalProject || deliveryTab !== 'cnc') return
-    if (props.role !== 'programadora_maquinaria') return
+    if (!canUploadBodegaMachine(props.role) && !canManageBodegaLikeAdmin(props.role)) return
     if (!step3FolderStatus.complete) return
     const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
     if (pendingProg.length === 0) return
@@ -1141,7 +1141,7 @@ export function BodegaPage(props: {
 
   useEffect(() => {
     if (!designModalProject || deliveryTab !== 'cnc') return
-    if (props.role !== 'programadora_maquinaria') return
+    if (!canUploadBodegaMachine(props.role) && !canManageBodegaLikeAdmin(props.role)) return
     if (!programmingRoutesLocked) return
     const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
     if (pendingProg.length === 0) return
@@ -1164,7 +1164,7 @@ export function BodegaPage(props: {
   /** Cuando ya no hay piezas CNC por programar, cierra el reloj de oficina (y no lo reabre). */
   useEffect(() => {
     if (!designModalProject) return
-    if (props.role !== 'programadora_maquinaria' && !canManageBodegaLikeAdmin(props.role)) return
+    if (!canUploadBodegaMachine(props.role) && !canManageBodegaLikeAdmin(props.role)) return
     if (projectPieces.length === 0) return
     const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
     if (pendingProg.length > 0) return

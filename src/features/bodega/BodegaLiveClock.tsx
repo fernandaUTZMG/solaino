@@ -50,10 +50,7 @@ export function BodegaLiveClock(props: Props) {
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] opacity-80">{props.label}</p>
       ) : null}
       <p
-        className={[
-          'mt-1 font-mono text-[32px] font-bold leading-none tabular-nums tracking-tight sm:text-[36px]',
-          props.active ? 'animate-pulse' : '',
-        ].join(' ')}
+        className="mt-1 font-mono text-[32px] font-bold leading-none tabular-nums tracking-tight sm:text-[36px]"
       >
         {display}
       </p>

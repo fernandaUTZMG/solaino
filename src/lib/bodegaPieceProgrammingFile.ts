@@ -43,6 +43,23 @@ export async function uploadPieceProgrammingFile(args: {
   return { storagePath: path, fileName: args.file.name }
 }
 
+/** Cierra el reloj y marca la pieza terminada usando un archivo que ya está en Storage. */
+export async function finishPieceProgrammingWithExistingFile(args: {
+  pieceId: string
+  lane: BodegaPieceLane
+  exitKind: ProgrammingExitKind
+  fileStoragePath: string
+  fileName: string
+}): Promise<void> {
+  await endPieceInterval(args.pieceId, args.lane)
+  await updateProgrammingFinish({
+    pieceId: args.pieceId,
+    exitKind: args.exitKind,
+    fileStoragePath: args.fileStoragePath,
+    fileName: args.fileName,
+  })
+}
+
 export async function finishPieceProgramming(args: {
   projectFolio: string
   pieceId: string

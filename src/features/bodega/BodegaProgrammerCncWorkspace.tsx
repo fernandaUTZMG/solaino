@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppRole } from '../../lib/roles'
 import { canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/roles'
 import type { BodegaProjectPieceRow } from '../../lib/bodegaPiecesRepo'
@@ -8,7 +8,11 @@ import {
   fetchPieceIntervalsForProject,
   startPieceInterval,
 } from '../../lib/bodegaPieceIntervalsRepo'
-import { finishPieceProgramming, replacePieceProgrammingFile } from '../../lib/bodegaPieceProgrammingFile'
+import {
+  finishPieceProgramming,
+  finishPieceProgrammingWithExistingFile,
+  replacePieceProgrammingFile,
+} from '../../lib/bodegaPieceProgrammingFile'
 import { pieceLaneElapsedSeconds } from '../../lib/bodegaPieceIntervalsRepo'
 import { formatSecondsAsHms } from '../../lib/maquinadoEstimatedTime'
 import { useLiveClockTick } from './useLiveClockTick.ts'
@@ -58,6 +62,8 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null)
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([])
   const [pieceFilter, setPieceFilter] = useState('')
+  const finishFileInputRef = useRef<HTMLInputElement>(null)
+  const [finishTargetId, setFinishTargetId] = useState<string | null>(null)
 
   const modulesWithPieces = useMemo(() => programmerCncModulesWithPieces(props.pieces), [props.pieces])
   const showModuleTabs = spacious && modulesWithPieces.length > 1
@@ -262,7 +268,44 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
       (r) => r.piece_id === p.id && r.lane === lane && r.ended_at == null,
     ),
   )
-  const clockNow = useLiveClockTick(anyModuleActive)
+  const clockNow = useLiveClockTick(anyModuleActive || modulePieces.length > 0)
+
+  async function onRowFinish(p: BodegaProjectPieceRow) {
+    if (!canWork || p.programming_finished_at) return
+    if (p.programming_file_storage_path && p.programming_file_name) {
+      setBusy(true)
+      setErr(null)
+      try {
+        await finishPieceProgrammingWithExistingFile({
+          pieceId: p.id,
+          lane,
+          exitKind: 'archivo_adjunto',
+          fileStoragePath: p.programming_file_storage_path,
+          fileName: p.programming_file_name,
+        })
+        await reloadIntervals()
+        await props.onReload()
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'No se terminó la programación')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    setFinishTargetId(p.id)
+    setSelectedPieceId(p.id)
+    window.setTimeout(() => finishFileInputRef.current?.click(), 0)
+  }
+
+  async function onRowFinishFilePicked(file: File | undefined) {
+    const pieceId = finishTargetId
+    setFinishTargetId(null)
+    if (finishFileInputRef.current) finishFileInputRef.current.value = ''
+    if (!file || !pieceId) return
+    const p = modulePieces.find((x) => x.id === pieceId)
+    if (!p) return
+    await onProgFinish(p, 'archivo_adjunto', file)
+  }
 
   const seccion = progSeccionForModule(props.activeModule)
   const titulo = progTituloForModule(props.activeModule)
@@ -331,6 +374,12 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
         {err ? (
           <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-900">{err}</div>
         ) : null}
+        <input
+          ref={finishFileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => void onRowFinishFilePicked(e.target.files?.[0])}
+        />
 
         {modulePieces.length === 0 ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-[14px] text-emerald-950">
@@ -436,24 +485,54 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                           onClick={() => setSelectedPieceId(p.id)}
                         >
                           <p className="font-bold text-slate-900">{p.label}</p>
-                          {pieceActive || pieceSec > 0 ? (
-                            <p className={['mt-1 font-mono text-[13px] font-bold tabular-nums', palette.meta].join(' ')}>
-                              {formatSecondsAsHms(pieceSec)}
-                              {pieceActive ? (
-                                <span className="ml-1.5 text-[10px] font-bold uppercase text-emerald-700">●</span>
-                              ) : null}
-                            </p>
-                          ) : null}
+                          <p className={['mt-1 font-mono text-[16px] font-bold tabular-nums', palette.meta].join(' ')}>
+                            {formatSecondsAsHms(pieceSec)}
+                            {pieceActive ? (
+                              <span className="ml-1.5 align-middle text-[10px] font-bold uppercase text-emerald-700">
+                                En curso
+                              </span>
+                            ) : null}
+                          </p>
                           <p className={['mt-0.5 text-[10px]', palette.meta].join(' ')}>
                             {afterPerfilado
                               ? 'Tras perfilado'
                               : finished
                                 ? 'Terminada'
                                 : pieceActive
-                                  ? 'En curso'
-                                  : 'Pendiente'}
+                                  ? 'Reloj activo'
+                                  : 'Pendiente — pulsa Inicio'}
                           </p>
                         </button>
+                        {canWork && !finished ? (
+                          <div className="flex shrink-0 flex-col justify-center gap-1 py-2 pr-2">
+                            {!pieceActive ? (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="min-h-[36px] rounded-lg bg-programacion-700 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:bg-programacion-800 disabled:opacity-50"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedPieceId(p.id)
+                                  void onProgStart(p)
+                                }}
+                              >
+                                Inicio
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="min-h-[36px] rounded-lg bg-programacion-900 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110 disabled:opacity-50"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void onRowFinish(p)
+                                }}
+                              >
+                                Fin
+                              </button>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                     </li>
                   )

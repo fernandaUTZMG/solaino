@@ -88,7 +88,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
         subtitle={
           programmingDone
             ? 'Programación CNC terminada: el reloj se detuvo al cerrar todas las piezas con archivo.'
-            : 'Corre mientras hay piezas CNC pendientes. Al terminar todas con archivo, el reloj se detiene.'
+            : 'Al entrar al proyecto el reloj de oficina empieza a contar. Cada pieza CNC tiene su propio Inicio y Fin.'
         }
       >
         <BodegaLiveClock
@@ -100,7 +100,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
             programmingDone
               ? 'Todas las piezas CNC ya tienen archivo. Siguiente: maquinado (con Inicio/Fin) o perfilado (sin tiempo).'
               : clockOpen
-                ? 'Reloj activo — hay piezas CNC por programar.'
+                ? 'Reloj de oficina activo. Abajo, inicia y termina el tiempo de cada pieza.'
                 : undefined
           }
           tone="navy"
