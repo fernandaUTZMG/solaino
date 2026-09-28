@@ -11,6 +11,16 @@ import { fetchMyProfile } from './auth'
 import { getSupabase } from './supabaseClient'
 import { activityAuthorDisplayLabel, fetchActivityActorLabels } from './projectActivityActor'
 import { fetchWorkIntervalsForProjects } from './bodegaWorkIntervalsRepo'
+import type { BodegaProjectPieceRow } from './bodegaPiecesRepo'
+import type { BodegaPieceIntervalRow } from './bodegaPieceIntervalsRepo'
+import type { ProjectPiecePhotoRow } from './piecePhotosRepo'
+import {
+  buildReportAdvance,
+  clipIntervalsToWindow,
+  currentWorkWeekWindow,
+  type ReportAdvance,
+  type WorkWeekWindow,
+} from './bodegaReportWeek'
 
 export type ProjectActivityNote = {
   id: string
@@ -75,7 +85,9 @@ function extractNotes(
 export type BodegaProjectReportRow = {
   project: BodegaProjectListRow
   times: ProjectOrdenTimeBreakdown
+  weekTimes: ProjectOrdenTimeBreakdown
   activityNotes: ProjectActivityNote[]
+  advance: ReportAdvance
 }
 
 export type BodegaOcReportGroup = {
@@ -87,6 +99,7 @@ export type BodegaOcReportGroup = {
   ocFecha: string | null
   projects: BodegaProjectReportRow[]
   timesSum: ProjectOrdenTimeBreakdown
+  weekTimesSum: ProjectOrdenTimeBreakdown
   nProjects: number
   nTerminados: number
   avgAvancePct: number
@@ -97,6 +110,7 @@ export type BodegaReportesBundle = {
   ordenes: OrdenCompraRow[]
   ocGroups: BodegaOcReportGroup[]
   loadedAt: string
+  week: WorkWeekWindow
 }
 
 function ocGroupKey(p: BodegaProjectListRow): string {
@@ -110,6 +124,82 @@ function ocGroupKey(p: BodegaProjectListRow): string {
   return `txt:${ord}__${cli}`
 }
 
+const PIECE_BATCH = 80
+
+async function fetchReportPieces(projectIds: string[]): Promise<Map<string, BodegaProjectPieceRow[]>> {
+  const m = new Map<string, BodegaProjectPieceRow[]>()
+  if (projectIds.length === 0) return m
+  const sb = getSupabase()
+  for (let i = 0; i < projectIds.length; i += PIECE_BATCH) {
+    const chunk = projectIds.slice(i, i + PIECE_BATCH)
+    const { data, error } = await sb.from('bodega_project_pieces').select('*').in('project_id', chunk)
+    if (error) {
+      const msg = [error.message, error.details].filter(Boolean).join(' ')
+      if (/does not exist|could not find|404|PGRST205/i.test(msg)) return m
+      throw error
+    }
+    for (const row of (data as BodegaProjectPieceRow[]) ?? []) {
+      const pid = row.project_id
+      if (!pid) continue
+      if (!m.has(pid)) m.set(pid, [])
+      m.get(pid)!.push(row)
+    }
+  }
+  return m
+}
+
+async function fetchReportPhotos(projectIds: string[]): Promise<Map<string, ProjectPiecePhotoRow[]>> {
+  const m = new Map<string, ProjectPiecePhotoRow[]>()
+  if (projectIds.length === 0) return m
+  const sb = getSupabase()
+  for (let i = 0; i < projectIds.length; i += PIECE_BATCH) {
+    const chunk = projectIds.slice(i, i + PIECE_BATCH)
+    const full = await sb
+      .from('project_piece_photos')
+      .select('id, project_id, piece_id, storage_path, filename, uploaded_by, created_at')
+      .in('project_id', chunk)
+    let rows = (full.data as ProjectPiecePhotoRow[]) ?? []
+    if (full.error) {
+      const msg = [full.error.message, full.error.details].filter(Boolean).join(' ')
+      if (/does not exist|could not find|404|PGRST205/i.test(msg)) return m
+      if (!/piece_id|42703|PGRST204/i.test(msg)) throw full.error
+      const legacy = await sb
+        .from('project_piece_photos')
+        .select('id, project_id, storage_path, filename, uploaded_by, created_at')
+        .in('project_id', chunk)
+      if (legacy.error) throw legacy.error
+      rows = ((legacy.data as Omit<ProjectPiecePhotoRow, 'piece_id'>[]) ?? []).map((r) => ({ ...r, piece_id: null }))
+    }
+    for (const row of rows) {
+      if (!m.has(row.project_id)) m.set(row.project_id, [])
+      m.get(row.project_id)!.push(row)
+    }
+  }
+  return m
+}
+
+async function fetchRoutesConfirmed(projectIds: string[]): Promise<Map<string, boolean>> {
+  const m = new Map<string, boolean>()
+  if (projectIds.length === 0) return m
+  const sb = getSupabase()
+  for (let i = 0; i < projectIds.length; i += PIECE_BATCH) {
+    const chunk = projectIds.slice(i, i + PIECE_BATCH)
+    const { data, error } = await sb
+      .from('bodega_projects')
+      .select('id, programming_routes_confirmed_at')
+      .in('id', chunk)
+    if (error) {
+      const msg = [error.message, error.details].filter(Boolean).join(' ')
+      if (/does not exist|programming_routes_confirmed_at|42703|PGRST204/i.test(msg)) return m
+      throw error
+    }
+    for (const row of (data as { id: string; programming_routes_confirmed_at: string | null }[]) ?? []) {
+      m.set(row.id, row.programming_routes_confirmed_at != null)
+    }
+  }
+  return m
+}
+
 export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle> {
   const now = new Date()
   const [projects, ordenes] = await Promise.all([
@@ -117,10 +207,13 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
     fetchOrdenesCompra().catch(() => [] as OrdenCompraRow[]),
   ])
   const ids = projects.map((p) => p.id)
-  const [workByProject, pieceByProject, activities] = await Promise.all([
+  const [workByProject, pieceByProject, activities, catalogPieces, photosByProject, routesConfirmed] = await Promise.all([
     fetchWorkIntervalsForProjects(ids),
     fetchPieceIntervalsForProjects(ids),
     fetchProjectActivityForProjects(ids, 12000),
+    fetchReportPieces(ids),
+    fetchReportPhotos(ids),
+    fetchRoutesConfirmed(ids),
   ])
 
   const activityByProject = new Map<string, ProjectActivityRow[]>()
@@ -142,15 +235,34 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
     myProfile,
   }
 
-  const reportRows: BodegaProjectReportRow[] = projects.map((project) => ({
-    project,
-    times: computeProjectOrdenTimes({
-      workIntervals: workByProject.get(project.id) ?? [],
-      pieceIntervals: pieceByProject.get(project.id) ?? [],
-      nowRef: now,
-    }),
-    activityNotes: extractNotes(activityByProject.get(project.id) ?? [], authorCtx),
-  }))
+  const week = currentWorkWeekWindow(now)
+  const reportRows: BodegaProjectReportRow[] = projects.map((project) => {
+    const work = workByProject.get(project.id) ?? []
+    const intervals: BodegaPieceIntervalRow[] = pieceByProject.get(project.id) ?? []
+    const weekTimes = computeProjectOrdenTimes({
+      workIntervals: clipIntervalsToWindow(work, week),
+      pieceIntervals: clipIntervalsToWindow(intervals, week),
+      nowRef: week.end,
+    })
+    return {
+      project,
+      times: computeProjectOrdenTimes({
+        workIntervals: work,
+        pieceIntervals: intervals,
+        nowRef: now,
+      }),
+      weekTimes,
+      activityNotes: extractNotes(activityByProject.get(project.id) ?? [], authorCtx),
+      advance: buildReportAdvance({
+        status: project.status,
+        week: weekTimes,
+        pieces: catalogPieces.get(project.id) ?? [],
+        intervals,
+        photos: photosByProject.get(project.id) ?? [],
+        routesConfirmed: routesConfirmed.get(project.id) ?? false,
+      }),
+    }
+  })
 
   const ordenById = new Map(ordenes.map((o) => [o.id, o]))
   const groupMap = new Map<string, BodegaProjectReportRow[]>()
@@ -171,6 +283,7 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
       if (it.project.status === 'terminado') nDone++
     }
     const timesSum = sumOrdenTimeBreakdowns(items.map((i) => i.times))
+    const weekTimesSum = sumOrdenTimeBreakdowns(items.map((i) => i.weekTimes))
     ocGroups.push({
       key,
       oc,
@@ -180,6 +293,7 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
       ocFecha: oc?.fecha ?? null,
       projects: items,
       timesSum,
+      weekTimesSum,
       nProjects: items.length,
       nTerminados: nDone,
       avgAvancePct: items.length ? Math.round(sumPct / items.length) : 0,
@@ -197,5 +311,6 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
     ordenes,
     ocGroups,
     loadedAt: now.toISOString(),
+    week,
   }
 }

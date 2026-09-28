@@ -1,19 +1,12 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { formatBusinessMinutesShort } from './bodegaProjectPhaseDurations'
-import {
-  ordenSegmentMinutes,
-  ORDEN_TIME_SEGMENTS,
-  sumOrdenTimeBreakdowns,
-  type ProjectOrdenTimeBreakdown,
-} from './bodegaProjectOrdenTimes'
-import type { BodegaOcReportGroup, BodegaProjectReportRow, BodegaReportesBundle } from './bodegaReportesRepo'
-import { bodegaProjectStatusLabelEs } from './bodegaProjectsRepo'
+import { sumOrdenTimeBreakdowns, type ProjectOrdenTimeBreakdown } from './bodegaProjectOrdenTimes'
+import type { BodegaOcReportGroup, BodegaReportesBundle } from './bodegaReportesRepo'
+import { formatWeekCell, quePasoEstaSemana, tallerWeekMinutes, type ReportAdvance } from './bodegaReportWeek'
 
 const NAVY: [number, number, number] = [4, 26, 56]
 const SLATE: [number, number, number] = [51, 65, 85]
-const MARGIN = 14
-const PAGE_H = 297
+const MARGIN = 12
 
 type JsPdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } }
 
@@ -61,37 +54,29 @@ async function loadSolainoLogoDataUrl(): Promise<string | null> {
   return blobToDataUrl(blob)
 }
 
+function pageBottom(doc: jsPDF): number {
+  return doc.internal.pageSize.getHeight() - 12
+}
+
 function ensureSpace(doc: jsPDF, y: number, need: number): number {
-  if (y + need > PAGE_H - MARGIN) {
+  if (y + need > pageBottom(doc)) {
     doc.addPage()
     return MARGIN + 4
   }
   return y
 }
 
-function addPageFooter(doc: jsPDF): void {
+function addPageFooter(doc: jsPDF, weekLabel: string): void {
   const n = doc.getNumberOfPages()
+  const h = doc.internal.pageSize.getHeight()
   for (let i = 1; i <= n; i++) {
     doc.setPage(i)
     doc.setFontSize(8)
     doc.setTextColor(...SLATE)
-    doc.text(
-      `SOLAINO — Reportes · Página ${i} de ${n}`,
-      doc.internal.pageSize.getWidth() / 2,
-      PAGE_H - 8,
-      { align: 'center' },
-    )
+    doc.text(`SOLAINO — Reporte semanal ${weekLabel}`, MARGIN, h - 7)
+    doc.text(`Página ${i} de ${n}`, doc.internal.pageSize.getWidth() - MARGIN, h - 7, { align: 'right' })
   }
 }
-
-function timesRow(t: ProjectOrdenTimeBreakdown): string[] {
-  return [
-    ...ORDEN_TIME_SEGMENTS.map((s) => formatBusinessMinutesShort(ordenSegmentMinutes(t, s.key))),
-    formatBusinessMinutesShort(t.totalTrackedMin),
-  ]
-}
-
-const TIME_HEADERS = [...ORDEN_TIME_SEGMENTS.map((s) => s.label), 'Total']
 
 export type ReportesPdfStats = {
   nOc: number
@@ -101,6 +86,7 @@ export type ReportesPdfStats = {
   nConContratiempo: number
   nConNotas: number
   totalTimes: ProjectOrdenTimeBreakdown
+  weekTimes: ProjectOrdenTimeBreakdown
 }
 
 export function computeReportesPdfStats(
@@ -111,6 +97,7 @@ export function computeReportesPdfStats(
   let nConContratiempo = 0
   let nConNotas = 0
   const parts: ProjectOrdenTimeBreakdown[] = []
+  const weekParts: ProjectOrdenTimeBreakdown[] = []
   for (const g of ocGroups) {
     for (const pr of g.projects) {
       nProjects++
@@ -118,6 +105,7 @@ export function computeReportesPdfStats(
       if (pr.project.design_contratiempo_notes) nConContratiempo++
       if (pr.activityNotes.length > 0) nConNotas++
       parts.push(pr.times)
+      weekParts.push(pr.weekTimes)
     }
   }
   return {
@@ -128,247 +116,204 @@ export function computeReportesPdfStats(
     nConContratiempo,
     nConNotas,
     totalTimes: sumOrdenTimeBreakdowns(parts),
+    weekTimes: sumOrdenTimeBreakdowns(weekParts),
   }
 }
 
-function drawPdfHeader(doc: jsPDF, logoDataUrl: string | null, generatedAt: string): number {
-  let y = MARGIN
+function drawPdfHeader(doc: jsPDF, logoDataUrl: string | null, generatedAt: string, weekLabel: string): number {
+  const w = doc.internal.pageSize.getWidth()
+  doc.setFillColor(...NAVY)
+  doc.rect(0, 0, w, 28, 'F')
+  doc.setFillColor(245, 158, 11)
+  doc.rect(0, 28, w, 1.4, 'F')
+
   if (logoDataUrl) {
     try {
-      doc.addImage(logoDataUrl, 'PNG', MARGIN, y, 42, 14)
-      y += 18
+      doc.addImage(logoDataUrl, 'PNG', MARGIN, 7, 38, 13)
     } catch {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(14)
-      doc.setTextColor(...NAVY)
-      doc.text('SOLAINO', MARGIN, y + 5)
-      y += 10
+      doc.setTextColor(255, 255, 255)
+      doc.text('SOLAINO', MARGIN, 16)
     }
   } else {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(14)
-    doc.setTextColor(...NAVY)
-    doc.text('SOLAINO', MARGIN, y + 5)
-    y += 10
+    doc.setTextColor(255, 255, 255)
+    doc.text('SOLAINO', MARGIN, 16)
   }
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(20)
-  doc.setTextColor(...NAVY)
-  doc.text('Reportes', MARGIN, y + 6)
-  y += 12
-
+  doc.setFontSize(18)
+  doc.setTextColor(255, 255, 255)
+  doc.text('Reporte semanal', w - MARGIN, 13, { align: 'right' })
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
-  doc.setTextColor(...SLATE)
-  doc.text(`Generado: ${formatDateTimeEs(generatedAt)}`, MARGIN, y)
-  y += 5
-  doc.text('Tiempos por reloj en horario hábil: lunes a viernes, 8:00 a 17:30.', MARGIN, y)
-  y += 5
-  doc.text(
-    'Cada proyecto acumula su propio tiempo; la suma por OC puede reflejar varios folios en paralelo.',
-    MARGIN,
-    y,
-    { maxWidth: doc.internal.pageSize.getWidth() - MARGIN * 2 },
-  )
-  return y + 8
+  doc.setTextColor(191, 219, 254)
+  doc.text(`Semana ${weekLabel}   ·   ${formatDateTimeEs(generatedAt)}`, w - MARGIN, 20, { align: 'right' })
+  return 36
 }
 
-function drawStatsSection(doc: jsPDF, y: number, stats: ReportesPdfStats, filterNote: string): number {
-  y = ensureSpace(doc, y, 40)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(12)
-  doc.setTextColor(...NAVY)
-  doc.text('Resumen estadístico', MARGIN, y)
-  y += 6
+function drawKpiRow(doc: jsPDF, y: number, stats: ReportesPdfStats, filterNote: string): number {
+  const cards: Array<[string, string]> = [
+    ['Órdenes', String(stats.nOc)],
+    ['Proyectos', String(stats.nProjects)],
+    ['Terminados', String(stats.nTerminados)],
+    ['En curso', String(stats.nEnCurso)],
+    ['Con contratiempo', String(stats.nConContratiempo)],
+  ]
+  const gap = 3
+  const width = doc.internal.pageSize.getWidth() - MARGIN * 2
+  const cardW = (width - gap * (cards.length - 1)) / cards.length
+  cards.forEach(([label, value], i) => {
+    const x = MARGIN + i * (cardW + gap)
+    doc.setFillColor(248, 250, 252)
+    doc.setDrawColor(226, 232, 240)
+    doc.roundedRect(x, y, cardW, 16, 1.5, 1.5, 'FD')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.setTextColor(...NAVY)
+    doc.text(value, x + 3, y + 7)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.setTextColor(...SLATE)
+    doc.text(label, x + 3, y + 12)
+  })
+  y += 20
 
   if (filterNote) {
     doc.setFont('helvetica', 'italic')
-    doc.setFontSize(9)
+    doc.setFontSize(8)
     doc.setTextColor(...SLATE)
-    doc.text(filterNote, MARGIN, y, { maxWidth: doc.internal.pageSize.getWidth() - MARGIN * 2 })
-    y += 8
+    doc.text(filterNote, MARGIN, y, { maxWidth: width })
+    y += 6
   }
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    theme: 'grid',
-    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontSize: 9 },
-    bodyStyles: { fontSize: 9, textColor: SLATE },
-    head: [['Indicador', 'Valor']],
-    body: [
-      ['Órdenes de compra (OC)', String(stats.nOc)],
-      ['Proyectos (folios)', String(stats.nProjects)],
-      ['Proyectos terminados', String(stats.nTerminados)],
-      ['Proyectos en curso', String(stats.nEnCurso)],
-      ['Con nota de contratiempo', String(stats.nConContratiempo)],
-      ['Con notas en historial', String(stats.nConNotas)],
-    ],
-  })
-  y = (doc as JsPdfWithTable).lastAutoTable?.finalY ?? y + 30
-  y += 6
-
-  y = ensureSpace(doc, y, 35)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.setTextColor(...NAVY)
-  doc.text('Tiempo total registrado (todas las OC del reporte)', MARGIN, y)
-  y += 5
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    theme: 'striped',
-    headStyles: { fillColor: [30, 58, 95], fontSize: 8 },
-    bodyStyles: { fontSize: 8 },
-    head: [TIME_HEADERS],
-    body: [timesRow(stats.totalTimes)],
-  })
-  return ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 10
+  return y
 }
 
-function drawOcSection(doc: jsPDF, y: number, g: BodegaOcReportGroup): number {
-  y = ensureSpace(doc, y, 35)
-  doc.setFillColor(240, 245, 255)
-  doc.setDrawColor(180, 198, 230)
-  doc.roundedRect(MARGIN, y - 2, doc.internal.pageSize.getWidth() - MARGIN * 2, 10, 2, 2, 'FD')
+function drawWeekNote(doc: jsPDF, y: number, weekNote: string): number {
+  const note = weekNote.trim()
+  if (!note) return y
+  const width = doc.internal.pageSize.getWidth() - MARGIN * 2
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(120, 53, 15)
+  const lines = doc.splitTextToSize(note, width - 8)
+  const boxH = 8 + lines.length * 4.2
+  doc.setFillColor(255, 247, 237)
+  doc.setDrawColor(251, 191, 36)
+  doc.roundedRect(MARGIN, y, width, boxH, 1.5, 1.5, 'FD')
+  doc.setFontSize(7)
+  doc.text('NOTA DE LA SEMANA', MARGIN + 4, y + 4.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.text(lines, MARGIN + 4, y + 9)
+  return y + boxH + 5
+}
+
+function weekCells(t: ProjectOrdenTimeBreakdown, done?: Pick<ReportAdvance, 'disenoCumplido' | 'programacionCumplido' | 'maquinadoCumplido' | 'tallerCumplido'> | null): string[] {
+  return [
+    formatWeekCell(t.disenoMin, done?.disenoCumplido ?? false),
+    formatWeekCell(t.programacionMin, done?.programacionCumplido ?? false),
+    formatWeekCell(t.maquinadoMin, done?.maquinadoCumplido ?? false),
+    formatWeekCell(tallerWeekMinutes(t), done?.tallerCumplido ?? false),
+  ]
+}
+
+function quePasoColors(raw: unknown): { text: [number, number, number]; fill: [number, number, number] } | null {
+  const text = String(raw ?? '')
+  if (/ausente|No se maquinó|Sin movimiento|Esperando|falta|esperan la foto|siguen en proceso/i.test(text)) {
+    return { text: [120, 53, 15], fill: [255, 247, 237] }
+  }
+  if (/Avanzó|Terminado|En revisión/i.test(text)) {
+    return { text: [6, 78, 59], fill: [236, 253, 245] }
+  }
+  return null
+}
+
+function drawOcSection(doc: jsPDF, y: number, g: BodegaOcReportGroup, weekNote: string): number {
+  const width = doc.internal.pageSize.getWidth() - MARGIN * 2
+  y = ensureSpace(doc, y, 28)
+  doc.setFillColor(...NAVY)
+  doc.roundedRect(MARGIN, y, width, 12, 1.2, 1.2, 'F')
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
-  doc.setTextColor(...NAVY)
-  doc.text(`OC ${g.numero}`, MARGIN + 3, y + 5)
-  y += 12
+  doc.setTextColor(255, 255, 255)
+  doc.text(`OC ${g.numero}`, MARGIN + 3, y + 7.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  const meta = `${g.empresaNombre}  ·  ${g.solicitante}  ·  ${formatDateEs(g.ocFecha)}  ·  ${g.nTerminados}/${g.nProjects} terminados  ·  ${g.avgAvancePct}%`
+  doc.text(meta, MARGIN + 42, y + 7.5, { maxWidth: width - 46 })
+  y += 14
+
+  const body = g.projects.map((pr) => {
+    const p = pr.project
+    const happened = quePasoEstaSemana({
+      status: p.status,
+      week: pr.weekTimes,
+      contratiempo: p.design_contratiempo_notes,
+      weekNote,
+      advance: pr.advance,
+    })
+    return [
+      `${p.folio}  ${p.nombre}`,
+      ...weekCells(pr.weekTimes, pr.advance),
+      `${pr.advance.headline} — ${happened}`,
+    ]
+  })
+  const every = (flag: (a: ReportAdvance) => boolean) => g.projects.length > 0 && g.projects.every((pr) => flag(pr.advance))
+  body.push([
+    'Suma de la OC',
+    ...weekCells(g.weekTimesSum, {
+      disenoCumplido: every((a) => a.disenoCumplido),
+      programacionCumplido: every((a) => a.programacionCumplido),
+      maquinadoCumplido: every((a) => a.maquinadoCumplido),
+      tallerCumplido: every((a) => a.tallerCumplido),
+    }),
+    '',
+  ])
 
   autoTable(doc, {
     startY: y,
     margin: { left: MARGIN, right: MARGIN },
     theme: 'plain',
-    styles: { fontSize: 8, cellPadding: 1.5 },
-    body: [
-      ['Empresa', g.empresaNombre],
-      ['Requisitor / cliente', g.solicitante],
-      ['Fecha OC (escaneo)', formatDateEs(g.ocFecha)],
-      ['Proyectos', `${g.nTerminados} terminados de ${g.nProjects}`],
-      ['Avance promedio', `${g.avgAvancePct}%`],
-    ],
+    styles: { fontSize: 8, cellPadding: 2.2, lineColor: [226, 232, 240], lineWidth: 0.15 },
+    headStyles: { fillColor: [241, 245, 249], textColor: NAVY, fontStyle: 'bold', fontSize: 8, halign: 'center' },
+    bodyStyles: { textColor: [30, 41, 59], valign: 'middle' },
+    head: [['Proyecto', 'Diseño', 'Programación', 'Maquinado', 'Taller', 'Qué pasó']],
+    body,
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 42, textColor: NAVY },
-      1: { cellWidth: 'auto' },
+      0: { cellWidth: 62, fontStyle: 'bold' },
+      1: { cellWidth: 26, halign: 'center' },
+      2: { cellWidth: 32, halign: 'center' },
+      3: { cellWidth: 28, halign: 'center' },
+      4: { cellWidth: 24, halign: 'center' },
+      5: { cellWidth: 'auto' },
+    },
+    didParseCell: (data) => {
+      if (data.section !== 'body') return
+      const last = data.row.index === body.length - 1
+      if (last) {
+        data.cell.styles.fontStyle = 'bold'
+        data.cell.styles.fillColor = [241, 245, 249]
+        data.cell.styles.textColor = NAVY
+        return
+      }
+      if (data.column.index >= 1 && data.column.index <= 4 && String(data.cell.raw ?? '') === 'Cumplido') {
+        data.cell.styles.textColor = [6, 78, 59]
+        data.cell.styles.fontStyle = 'bold'
+      }
+      if (data.column.index === 5) {
+        const colors = quePasoColors(data.cell.raw)
+        if (colors) {
+          data.cell.styles.textColor = colors.text
+          data.cell.styles.fillColor = colors.fill
+        }
+      }
+      else if (data.row.index % 2 === 1) data.cell.styles.fillColor = [248, 250, 252]
     },
   })
-  y = (doc as JsPdfWithTable).lastAutoTable?.finalY ?? y + 20
-  y += 2
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.setTextColor(...NAVY)
-  doc.text('Tiempos sumados de la OC', MARGIN, y)
-  y += 4
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    theme: 'grid',
-    headStyles: { fillColor: [59, 89, 152], fontSize: 7 },
-    bodyStyles: { fontSize: 7 },
-    head: [TIME_HEADERS],
-    body: [timesRow(g.timesSum)],
-  })
-  y = (doc as JsPdfWithTable).lastAutoTable?.finalY ?? y + 12
-  y += 4
-
-  for (const pr of g.projects) {
-    y = drawProjectSection(doc, y, pr)
-  }
-  return y + 6
-}
-
-function drawProjectSection(doc: jsPDF, y: number, pr: BodegaProjectReportRow): number {
-  const p = pr.project
-  y = ensureSpace(doc, y, 28)
-
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(10)
-  doc.setTextColor(...NAVY)
-  doc.text(`Proyecto ${p.folio}`, MARGIN, y)
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8)
-  doc.setTextColor(...SLATE)
-  const sub = `${p.nombre} · ${bodegaProjectStatusLabelEs(p.status)} · Avance ${p.avance_pct}%`
-  doc.text(sub, MARGIN, y + 4, { maxWidth: doc.internal.pageSize.getWidth() - MARGIN * 2 })
-  y += 10
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    theme: 'striped',
-    headStyles: { fillColor: [100, 116, 139], fontSize: 7 },
-    bodyStyles: { fontSize: 7 },
-    head: [TIME_HEADERS],
-    body: [timesRow(pr.times)],
-  })
-  y = (doc as JsPdfWithTable).lastAutoTable?.finalY ?? y + 10
-  y += 3
-
-  if (p.design_contratiempo_notes) {
-    y = ensureSpace(doc, y, 20)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(146, 64, 14)
-    doc.text('Contratiempo / motivo de retraso', MARGIN, y)
-    y += 4
-    autoTable(doc, {
-      startY: y,
-      margin: { left: MARGIN, right: MARGIN },
-      theme: 'plain',
-      bodyStyles: { fontSize: 8, textColor: [120, 53, 15] },
-      body: [[p.design_contratiempo_notes]],
-      columnStyles: { 0: { cellWidth: 'auto' } },
-    })
-    y = (doc as JsPdfWithTable).lastAutoTable?.finalY ?? y + 12
-    y += 3
-  }
-
-  const noteRows: string[][] = []
-  for (const n of pr.activityNotes.slice(0, 25)) {
-    noteRows.push([
-      formatDateTimeEs(n.created_at),
-      n.authorLabel,
-      n.typeLabel,
-      n.comment,
-    ])
-  }
-  if (noteRows.length > 0) {
-    y = ensureSpace(doc, y, 18)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(...NAVY)
-    doc.text('Notas e historial (por qué, observaciones)', MARGIN, y)
-    y += 4
-    autoTable(doc, {
-      startY: y,
-      margin: { left: MARGIN, right: MARGIN },
-      theme: 'striped',
-      headStyles: { fillColor: [71, 85, 105], fontSize: 7 },
-      bodyStyles: { fontSize: 7, valign: 'top' },
-      head: [['Fecha', 'Quién', 'Tipo', 'Comentario']],
-      body: noteRows,
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 36 },
-        2: { cellWidth: 24 },
-        3: { cellWidth: 'auto' },
-      },
-    })
-    y = (doc as JsPdfWithTable).lastAutoTable?.finalY ?? y + 12
-  } else if (!p.design_contratiempo_notes) {
-    doc.setFontSize(7)
-    doc.setTextColor(148, 163, 184)
-    doc.text('Sin notas registradas en historial.', MARGIN, y)
-    y += 5
-  }
-
-  return y + 4
+  return ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 8
 }
 
 export type DownloadBodegaReportesPdfArgs = {
@@ -376,24 +321,45 @@ export type DownloadBodegaReportesPdfArgs = {
   ocGroups: BodegaOcReportGroup[]
   /** Texto opcional si el PDF refleja un filtro de búsqueda. */
   filterNote?: string
+  /** Ausencias u otras aclaraciones de la semana. */
+  weekNote?: string
 }
 
 /** Genera y descarga el PDF de reportes (OC, tiempos, contratiempos y notas). */
 export async function downloadBodegaReportesPdf(args: DownloadBodegaReportesPdfArgs): Promise<void> {
   const { bundle, ocGroups, filterNote } = args
+  const weekNote = args.weekNote?.trim() ?? ''
   const logo = await loadSolainoLogoDataUrl()
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const stats = computeReportesPdfStats(ocGroups)
 
-  let y = drawPdfHeader(doc, logo, bundle.loadedAt)
-  y = drawStatsSection(doc, y, stats, filterNote ?? '')
+  let y = drawPdfHeader(doc, logo, bundle.loadedAt, bundle.week.label)
+  y = drawKpiRow(doc, y, stats, filterNote ?? '')
+  y = drawWeekNote(doc, y, weekNote)
 
-  y = ensureSpace(doc, y, 20)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(...NAVY)
+  doc.text('Tiempo de esta semana (lun–vie, 8:00 a 17:30)', MARGIN, y)
+  y += 4
+  autoTable(doc, {
+    startY: y,
+    margin: { left: MARGIN, right: MARGIN },
+    theme: 'plain',
+    styles: { fontSize: 8, cellPadding: 2, halign: 'center' },
+    headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' },
+    bodyStyles: { textColor: NAVY, fontStyle: 'bold', fillColor: [248, 250, 252] },
+    head: [['Diseño', 'Programación', 'Maquinado', 'Taller']],
+    body: [weekCells(stats.weekTimes)],
+  })
+  y = ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 8
+
+  y = ensureSpace(doc, y, 16)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
   doc.setTextColor(...NAVY)
-  doc.text('Detalle por orden de compra', MARGIN, y)
-  y += 8
+  doc.text('Por orden de compra', MARGIN, y)
+  y += 6
 
   if (ocGroups.length === 0) {
     doc.setFont('helvetica', 'normal')
@@ -402,11 +368,11 @@ export async function downloadBodegaReportesPdf(args: DownloadBodegaReportesPdfA
     doc.text('No hay órdenes que coincidan con el criterio del reporte.', MARGIN, y)
   } else {
     for (const g of ocGroups) {
-      y = drawOcSection(doc, y, g)
+      y = drawOcSection(doc, y, g, weekNote)
     }
   }
 
-  addPageFooter(doc)
+  addPageFooter(doc, bundle.week.label)
   const stamp = new Date().toISOString().slice(0, 10)
-  doc.save(`reportes-solaino-${stamp}.pdf`)
+  doc.save(`reporte-semanal-solaino-${stamp}.pdf`)
 }

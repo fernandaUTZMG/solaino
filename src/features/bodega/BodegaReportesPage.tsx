@@ -4,6 +4,7 @@ import { downloadBodegaReportesPdf } from '../../lib/bodegaReportesPdf'
 import type { BodegaOcReportGroup, BodegaProjectReportRow, BodegaReportesBundle } from '../../lib/bodegaReportesRepo'
 import { fetchBodegaReportesBundle } from '../../lib/bodegaReportesRepo'
 import { bodegaProjectStatusLabelEs } from '../../lib/bodegaProjectsRepo'
+import { formatWeekCell, quePasoEstaSemana, tallerWeekMinutes } from '../../lib/bodegaReportWeek'
 import {
   OrdenProjectTimeGrid,
   OrdenTimeLegend,
@@ -40,7 +41,7 @@ function formatDateTimeEs(iso: string): string {
   }
 }
 
-function ProjectReportCard(props: { row: BodegaProjectReportRow; defaultOpen?: boolean }) {
+function ProjectReportCard(props: { row: BodegaProjectReportRow; weekNote: string; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(props.defaultOpen ?? false)
   const p = props.row.project
   return (
@@ -57,6 +58,21 @@ function ProjectReportCard(props: { row: BodegaProjectReportRow; defaultOpen?: b
           </p>
           <p className="mt-1 text-[11px] text-slate-500">
             OC {p.orden?.trim() || '—'} · {p.empresa || p.cliente}
+          </p>
+          <p className="mt-1 text-[12px] leading-snug text-slate-700">
+            Esta semana: diseño {formatWeekCell(props.row.weekTimes.disenoMin, props.row.advance.disenoCumplido)} · prog.{' '}
+            {formatWeekCell(props.row.weekTimes.programacionMin, props.row.advance.programacionCumplido)} · maq.{' '}
+            {formatWeekCell(props.row.weekTimes.maquinadoMin, props.row.advance.maquinadoCumplido)} · taller{' '}
+            {formatWeekCell(tallerWeekMinutes(props.row.weekTimes), props.row.advance.tallerCumplido)}
+          </p>
+          <p className="mt-0.5 text-[12px] font-semibold text-amber-950">
+            {quePasoEstaSemana({
+              status: p.status,
+              week: props.row.weekTimes,
+              contratiempo: p.design_contratiempo_notes,
+              weekNote: props.weekNote,
+              advance: props.row.advance,
+            })}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -122,7 +138,7 @@ function ProjectReportCard(props: { row: BodegaProjectReportRow; defaultOpen?: b
   )
 }
 
-function OcReportCard(props: { group: BodegaOcReportGroup }) {
+function OcReportCard(props: { group: BodegaOcReportGroup; weekNote: string }) {
   const [open, setOpen] = useState(false)
   const g = props.group
   return (
@@ -146,7 +162,14 @@ function OcReportCard(props: { group: BodegaOcReportGroup }) {
       </div>
       <div className="space-y-3 p-4">
         <div>
-          <p className="text-[10px] font-bold uppercase text-slate-600">Suma de tiempos (todos los folios)</p>
+          <p className="text-[10px] font-bold uppercase text-slate-600">Esta semana</p>
+          <p className="mt-1 text-[12px] text-slate-700">
+            Diseño {formatWeekCell(g.weekTimesSum.disenoMin, g.projects.every((p) => p.advance.disenoCumplido))} · programación{' '}
+            {formatWeekCell(g.weekTimesSum.programacionMin, g.projects.every((p) => p.advance.programacionCumplido))} · maquinado{' '}
+            {formatWeekCell(g.weekTimesSum.maquinadoMin, g.projects.every((p) => p.advance.maquinadoCumplido))} · taller{' '}
+            {formatWeekCell(tallerWeekMinutes(g.weekTimesSum), g.projects.every((p) => p.advance.tallerCumplido))}
+          </p>
+          <p className="mt-3 text-[10px] font-bold uppercase text-slate-600">Acumulado de la orden</p>
           <div className="mt-2">
             <OrdenTimeSegmentsBar times={g.timesSum} />
           </div>
@@ -165,7 +188,7 @@ function OcReportCard(props: { group: BodegaOcReportGroup }) {
         {open ? (
           <div className="space-y-3 border-t border-slate-100 pt-3">
             {g.projects.map((pr) => (
-              <ProjectReportCard key={pr.project.id} row={pr} />
+              <ProjectReportCard key={pr.project.id} row={pr} weekNote={props.weekNote} />
             ))}
           </div>
         ) : null}
@@ -182,6 +205,7 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
   const [q, setQ] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [pdfBusy, setPdfBusy] = useState(false)
+  const [weekNote, setWeekNote] = useState('')
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -199,6 +223,12 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    if (!bundle) return
+    const key = `solaino-reporte-semana:${bundle.week.label}`
+    setWeekNote(localStorage.getItem(key) ?? '')
+  }, [bundle])
 
   const filteredProjects = useMemo(() => {
     if (!bundle) return []
@@ -239,6 +269,7 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
         bundle,
         ocGroups: ocForPdf,
         filterNote: filterNote || undefined,
+        weekNote,
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo generar el PDF')
@@ -252,13 +283,13 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
       <header className="overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-section-navy via-section-navy to-blue-950 text-white shadow-md">
         <div className="px-5 py-5 sm:px-6">
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-200/90">Bodega</p>
-          <h1 className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">Reportes de tiempos y notas</h1>
+          <h1 className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">
+            Reporte semanal{bundle ? ` · ${bundle.week.label}` : ''}
+          </h1>
           <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-blue-100/95">
-            Tiempos medidos con los relojes de cada etapa (diseño, programación, maquinado, perfilado, detallado,
-            armado). Solo cuentan minutos hábiles de <strong>lunes a viernes, 8:00 a 17:30</strong>. La fecha de la OC
-            es la del escaneo/registro del PDF; cada proyecto acumula su propio tiempo si trabajan varios a la vez.
-            Usa <strong>Exportar PDF</strong> para el informe con logo SOLAINO, estadísticas, tiempos por OC y notas de
-            contratiempos.
+            Reporte del viernes: tiempo hábil de esta semana y el motivo cuando un proyecto no avanzó. El horario es
+            lunes a viernes, 8:00 a 17:30. Anota ausencias en la nota de la semana; el PDF la muestra arriba de las
+            órdenes.
           </p>
           {bundle ? (
             <p className="mt-2 text-[11px] text-blue-200/80">
@@ -314,6 +345,25 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
         </div>
       </div>
 
+      {bundle ? (
+        <label className="block rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-amber-950">
+            Nota de la semana {bundle.week.label}
+          </span>
+          <textarea
+            value={weekNote}
+            onChange={(e) => {
+              const next = e.target.value
+              setWeekNote(next)
+              localStorage.setItem(`solaino-reporte-semana:${bundle.week.label}`, next)
+            }}
+            rows={2}
+            placeholder="Ejemplo: el programador no asiste jueves ni viernes; regresa el martes."
+            className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-[14px] outline-none focus:ring-2 focus:ring-amber-300"
+          />
+        </label>
+      ) : null}
+
       <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
         <label className="min-w-[12rem] flex-1">
           <span className="text-[11px] font-bold uppercase text-slate-500">Buscar</span>
@@ -358,7 +408,7 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             {filteredOc.map((g) => (
-              <OcReportCard key={g.key} group={g} />
+              <OcReportCard key={g.key} group={g} weekNote={weekNote} />
             ))}
           </div>
         )
@@ -369,7 +419,7 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filteredProjects.map((row) => (
-            <ProjectReportCard key={row.project.id} row={row} />
+            <ProjectReportCard key={row.project.id} row={row} weekNote={weekNote} />
           ))}
         </div>
       )}
