@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import {
   pieceHasOpenInterval,
-  pieceLaneElapsedSeconds,
+  pieceLaneBusinessSeconds,
   type BodegaPieceIntervalRow,
   type BodegaPieceLane,
 } from '../../lib/bodegaPieceIntervalsRepo'
@@ -52,7 +52,7 @@ export function BodegaPieceProgrammingControls(props: Props) {
   const showWorkflow = props.canWork && !showFinishedState
   const programmingActive = pieceHasOpenInterval(props.intervals, props.piece.id, props.lane)
   const clockNow = useLiveClockTick(programmingActive)
-  const elapsedSec = pieceLaneElapsedSeconds(props.intervals, props.piece.id, props.lane, clockNow)
+  const elapsedSec = pieceLaneBusinessSeconds(props.intervals, props.piece.id, props.lane, clockNow)
   const hasFile = Boolean(props.piece.programming_file_storage_path && props.piece.programming_file_name)
   const palette = progWorkspacePalette(props.lane === 'programacion_torno' ? 'torno' : 'programacion')
   const finishBtnLabel = afterPerfiladoRound ? 'Terminar' : 'Terminar (sin perfilado)'
@@ -99,11 +99,11 @@ export function BodegaPieceProgrammingControls(props: Props) {
           label={`Tiempo — ${props.moduleLabel}`}
           hint={
             programmingActive
-              ? 'El reloj corre desde que pulsaste Inicio. Sube el archivo y termina cuando acabes.'
+              ? 'Cuenta solo lun–vie 8:00–17:30 desde que pulsaste Inicio. Sube el archivo y termina cuando acabes.'
               : 'Pulsa Inicio para comenzar a contar el tiempo de esta pieza.'
           }
           businessMinutes={elapsedSec / 60}
-          businessMinutesLabel="Acumulado"
+          businessMinutesLabel="Min. hábiles"
           tone="programacion"
         />
       </div>

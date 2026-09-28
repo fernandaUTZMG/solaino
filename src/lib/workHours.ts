@@ -274,6 +274,82 @@ export function businessMinutesBetween(start: Date, end: Date, schedule: WorkSch
 
 
 
+/** Segundos dentro del mismo horario (lun–vie 8:00–17:30). El reloj se detiene fuera de ese tramo. */
+
+export function businessSecondsBetween(start: Date, end: Date, schedule: WorkSchedule = DEFAULT_SOLAINO_SCHEDULE): number {
+
+  const tz = resolveTimeZone(schedule)
+
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return 0
+
+  if (start.getTime() >= end.getTime()) return 0
+
+
+
+  const startMin = toMinutes(schedule.start.hour, schedule.start.minute)
+
+  const endMin = toMinutes(schedule.end.hour, schedule.end.minute)
+
+  if (endMin <= startMin) return 0
+
+
+
+  const startParts = getZonedParts(start, tz)
+
+  const endParts = getZonedParts(end, tz)
+
+  const endKey = calendarKey(endParts.year, endParts.month, endParts.day)
+
+
+
+  let y = startParts.year
+
+  let m = startParts.month
+
+  let d = startParts.day
+
+  let total = 0
+
+
+
+  while (true) {
+
+    const key = calendarKey(y, m, d)
+
+    const noon = zonedLocalToInstant(y, m, d, 12, 0, tz)
+
+    const dow = getZonedParts(noon, tz).dowMon1
+
+    if (schedule.weekDays.includes(dow)) {
+
+      const dayStart = zonedLocalToInstant(y, m, d, schedule.start.hour, schedule.start.minute, tz)
+
+      const dayEnd = zonedLocalToInstant(y, m, d, schedule.end.hour, schedule.end.minute, tz)
+
+      const segStart = Math.max(dayStart.getTime(), start.getTime())
+
+      const segEnd = Math.min(dayEnd.getTime(), end.getTime())
+
+      const ms = segEnd - segStart
+
+      if (ms > 0) total += Math.floor(ms / 1000)
+
+    }
+
+    if (key >= endKey) break
+
+    ;({ y, m, d } = addCalendarDays(y, m, d, 1))
+
+  }
+
+
+
+  return total
+
+}
+
+
+
 /** Horas decimales dentro del horario laboral (misma lógica que `businessMinutesBetween`). */
 
 export function businessHoursBetween(

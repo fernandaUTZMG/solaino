@@ -2,7 +2,7 @@ import { useMemo, useRef, type ReactNode } from 'react'
 import type { AppRole } from '../../lib/roles'
 import { canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/roles'
 import type { CncModuleKind } from '../../lib/machineVersionsRepo'
-import { programmingElapsedSeconds } from '../../lib/bodegaProjectOrdenTimes'
+import { programmingBusinessSeconds } from '../../lib/bodegaProjectOrdenTimes'
 import type { BodegaPieceIntervalRow } from '../../lib/bodegaPieceIntervalsRepo'
 import type { BodegaWorkIntervalRow } from '../../lib/bodegaWorkIntervalsRepo'
 import { nowDate } from '../../lib/serverNow'
@@ -70,7 +70,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
       (r.lane === 'cnc_programacion' || r.lane === 'cnc_torno') && !r.ended_at ? { ...r, ended_at: ended } : r,
     )
   }, [intervals, programmingDone])
-  const clockSec = programmingElapsedSeconds(displayIntervals, pieceIntervals, clockNow)
+  const clockSec = programmingBusinessSeconds(displayIntervals, pieceIntervals, clockNow)
   const clockMins = clockSec / 60
 
   return (
@@ -90,7 +90,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
         subtitle={
           programmingDone
             ? 'Programación CNC terminada: el reloj se detuvo al cerrar todas las piezas con archivo.'
-            : 'Al entrar al proyecto el reloj de oficina empieza a contar. Cada pieza CNC tiene su propio Inicio y Fin.'
+            : 'Cuenta solo lunes a viernes, de 8:00 a 17:30. Cada pieza CNC tiene su propio Inicio y Fin.'
         }
       >
         <BodegaLiveClock
@@ -102,12 +102,12 @@ export function BodegaProgramacionWorkspace(props: Props) {
             programmingDone
               ? 'Todas las piezas CNC ya tienen archivo. Siguiente: maquinado (con Inicio/Fin) o perfilado (sin tiempo).'
               : clockOpen
-                ? 'Reloj de oficina activo. Abajo, inicia y termina el tiempo de cada pieza.'
+                ? 'Reloj de oficina activo (lun–vie 8:00–17:30). Abajo, inicia y termina el tiempo de cada pieza.'
                 : undefined
           }
           tone="navy"
           businessMinutes={clockMins > 0 ? clockMins : undefined}
-          businessMinutesLabel="Acumulado"
+          businessMinutesLabel="Min. hábiles"
         />
       </StepBlock>
 

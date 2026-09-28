@@ -12,7 +12,7 @@ import {
   finishPieceProgrammingWithExistingFile,
   replacePieceProgrammingFile,
 } from '../../lib/bodegaPieceProgrammingFile'
-import { pieceLaneElapsedSeconds } from '../../lib/bodegaPieceIntervalsRepo'
+import { pieceLaneBusinessSeconds } from '../../lib/bodegaPieceIntervalsRepo'
 import { formatSecondsAsHms } from '../../lib/maquinadoEstimatedTime'
 import { useLiveClockTick } from './useLiveClockTick.ts'
 import {
@@ -116,7 +116,7 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
     const now = new Date()
     const ids = new Set(intervalRows.map((r) => r.piece_id))
     for (const pid of ids) {
-      m.set(pid, pieceLaneElapsedSeconds(intervalRows, pid, lane, now) / 60)
+      m.set(pid, pieceLaneBusinessSeconds(intervalRows, pid, lane, now) / 60)
     }
     return m
   }, [intervalRows, lane])
@@ -452,7 +452,7 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                   const pieceActive = intervalRows.some(
                     (r) => r.piece_id === p.id && r.lane === lane && r.ended_at == null,
                   )
-                  const pieceSec = pieceLaneElapsedSeconds(intervalRows, p.id, lane, clockNow)
+                  const pieceSec = pieceLaneBusinessSeconds(intervalRows, p.id, lane, clockNow)
                   return (
                     <li key={p.id}>
                       <div

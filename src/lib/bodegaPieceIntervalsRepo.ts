@@ -1,6 +1,6 @@
 import { getSupabase } from './supabaseClient'
 import { intervalDate, spanSeconds } from './intervalTime'
-import { businessMinutesBetween } from './workHours'
+import { businessMinutesBetween, businessSecondsBetween } from './workHours'
 
 export type BodegaPieceLane =
   | 'programacion_cnc'
@@ -165,6 +165,24 @@ export function pieceLaneElapsedSeconds(
   for (const r of rows) {
     if (r.piece_id !== pieceId || r.lane !== lane) continue
     total += spanSeconds(r.started_at, r.ended_at, nowMs)
+  }
+  return total
+}
+
+/** Segundos hábiles (lun–vie 8:00–17:30) de una pieza y carril. */
+export function pieceLaneBusinessSeconds(
+  rows: BodegaPieceIntervalRow[],
+  pieceId: string,
+  lane: BodegaPieceLane,
+  nowRef: Date = new Date(),
+): number {
+  let total = 0
+  for (const r of rows) {
+    if (r.piece_id !== pieceId || r.lane !== lane) continue
+    const start = intervalDate(r.started_at)
+    if (!start) continue
+    const end = r.ended_at ? intervalDate(r.ended_at) ?? nowRef : nowRef
+    total += businessSecondsBetween(start, end)
   }
   return total
 }

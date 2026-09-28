@@ -1,5 +1,6 @@
-import { spanSeconds } from './intervalTime'
+import { intervalDate, spanSeconds } from './intervalTime'
 import { nowDate } from './serverNow'
+import { businessSecondsBetween } from './workHours'
 import {
   aggregateBusinessMinutesByLane,
   type BodegaWorkIntervalLane,
@@ -61,7 +62,33 @@ function sumWorkWallMinutes(
   return programmingElapsedSeconds(rows, [], now, lanes, []) / 60
 }
 
-/** Segundos de reloj real de programación (oficina + piezas). Misma cifra en pestaña y cronómetro. */
+/** Segundos hábiles de programación (oficina + piezas), lun–vie 8:00–17:30. */
+export function programmingBusinessSeconds(
+  workIntervals: BodegaWorkIntervalRow[],
+  pieceIntervals: BodegaPieceIntervalRow[],
+  now: Date,
+): number {
+  const workSet = new Set<string>(WORK_PROGRAMACION_LANES)
+  const pieceSet = new Set<string>(PIECE_PROGRAMACION_LANES)
+  let s = 0
+  for (const r of workIntervals) {
+    if (!workSet.has(r.lane)) continue
+    const start = intervalDate(r.started_at)
+    if (!start) continue
+    const end = r.ended_at ? intervalDate(r.ended_at) ?? now : now
+    s += businessSecondsBetween(start, end)
+  }
+  for (const r of pieceIntervals) {
+    if (!pieceSet.has(r.lane)) continue
+    const start = intervalDate(r.started_at)
+    if (!start) continue
+    const end = r.ended_at ? intervalDate(r.ended_at) ?? now : now
+    s += businessSecondsBetween(start, end)
+  }
+  return s
+}
+
+/** Segundos de reloj real (máquina y otros carriles que no usan horario de oficina). */
 export function programmingElapsedSeconds(
   workIntervals: BodegaWorkIntervalRow[],
   pieceIntervals: BodegaPieceIntervalRow[],
@@ -96,7 +123,7 @@ export function computeProjectOrdenTimes(args: {
   const byPieceWall = aggregatePieceWallMinutesByLane(args.pieceIntervals, now)
 
   const disenoMin = byWork.get('diseno') ?? 0
-  const programacionMin = programmingElapsedSeconds(args.workIntervals, args.pieceIntervals, now) / 60
+  const programacionMin = programmingBusinessSeconds(args.workIntervals, args.pieceIntervals, now) / 60
   const maquinadoMin =
     (byPieceWall.get('maquinado') ?? 0) + sumWorkWallMinutes(args.workIntervals, WORK_MAQUINADO_LANES, now)
   const perfiladoMin = byPiece.get('perfilado_operador') ?? 0
