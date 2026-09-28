@@ -60,7 +60,7 @@ export function BodegaDisenoWorkspace(props: Props) {
 
       <StepBlock
         title="Tiempo de diseño"
-        subtitle="Empieza al entrar al proyecto. Se pausa cuando entregas el ensamble .x_t."
+        subtitle="Pulsa Inicio para contar. El tiempo se cierra al subir el ensamble .x_t."
       >
         {props.clockPanel}
       </StepBlock>

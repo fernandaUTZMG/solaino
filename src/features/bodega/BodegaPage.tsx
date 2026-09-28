@@ -832,17 +832,11 @@ export function BodegaPage(props: {
     }
   }, [])
 
-  async function maybeStartDesignClockForViewer(project: BodegaProjectRow) {
-    if (props.role !== 'disenadora') return
-    const st = project.status
-    if (!['pendiente', 'en_diseno', 'modificacion_diseno', 'diseno_parcial'].includes(st)) return
-    try {
-      await startWorkInterval(project.id, 'diseno')
-      const iv = await fetchWorkIntervals(project.id)
-      setWorkIntervals(iv)
-    } catch {
-      /* reloj idempotente; si falla no bloquea el panel */
-    }
+  async function startDesignClockManually() {
+    if (!designModalProject || props.role !== 'disenadora') return
+    await startWorkInterval(designModalProject.id, 'diseno')
+    const iv = await fetchWorkIntervals(designModalProject.id)
+    setWorkIntervals(iv)
   }
 
   async function maybeStartProgrammingClockForViewer(project: BodegaProjectRow) {
@@ -918,7 +912,6 @@ export function BodegaPage(props: {
       })
     }
     await loadProjectDeliveries(row.id)
-    await maybeStartDesignClockForViewer(row)
     await maybeStartProgrammingClockForViewer(row)
   }
 
@@ -3368,7 +3361,10 @@ export function BodegaPage(props: {
                       }
                       workIntervals={workIntervals}
                       hideOrdenClock
-                      idleClockHint="Se inicia al entrar al proyecto"
+                      idleClockHint="Pulsa Inicio para comenzar"
+                      onStartDesignClock={
+                        props.role === 'disenadora' ? () => startDesignClockManually() : undefined
+                      }
                       designContratiempoNotes={pieceFlowMeta?.design_contratiempo_notes ?? null}
                       onReloadMeta={async () => {
                         const meta = await fetchProjectPieceFlowMeta(designModalProject.id)

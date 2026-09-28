@@ -32,11 +32,13 @@ type Props = {
   onSaved?: () => void
   hideOrdenClock?: boolean
   idleClockHint?: string
+  onStartDesignClock?: () => Promise<void>
 }
 
 export function BodegaProjectClockPanel(props: Props) {
   const [contratiempoDraft, setContratiempoDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [clockBusy, setClockBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
@@ -78,12 +80,12 @@ export function BodegaProjectClockPanel(props: Props) {
   const designHint = designOpen
     ? designPausedReview
       ? 'Reloj pausado mientras el supervisor revisa la entrega.'
-      : 'Reloj activo — tiempo de diseño o corrección en curso.'
+      : 'Reloj activo. Se cierra al subir el archivo .x_t.'
     : designEstado === 'Listo para corrección'
-      ? 'Abre la pestaña Diseño para registrar la corrección.'
+      ? 'Pulsa Inicio para registrar el tiempo de la corrección.'
       : designEstado === 'Cerrado'
         ? 'Tiempo de diseño cerrado (entrega en revisión o proyecto aprobado).'
-        : (props.idleClockHint ?? 'Se inicia al entrar al proyecto.')
+        : (props.idleClockHint ?? 'Pulsa Inicio para comenzar.')
 
   async function saveContratiempo() {
     if (props.role !== 'disenadora') return
@@ -136,12 +138,37 @@ export function BodegaProjectClockPanel(props: Props) {
           active={designOpen}
           label="Diseño"
           hint={designHint}
-          idleLabel={props.idleClockHint ?? 'Se inicia al abrir esta pestaña'}
+          idleLabel={props.idleClockHint ?? 'Pulsa Inicio para comenzar'}
           businessMinutes={designRows.length > 0 ? totalDesignBusinessMinutes(designRounds) : undefined}
           businessMinutesLabel="Total min. hábiles"
           tone="navy"
         />
       </div>
+
+      {props.role === 'disenadora' && props.onStartDesignClock && designPhaseActive && !designPausedReview ? (
+        <div className="mt-3">
+          {designOpen ? (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-900">
+              Fin: se marca al subir el archivo .x_t.
+            </p>
+          ) : (
+            <button
+              type="button"
+              disabled={clockBusy}
+              className="min-h-[44px] rounded-xl bg-section-navy px-5 py-2.5 text-[14px] font-bold text-white shadow-sm disabled:opacity-50"
+              onClick={() => {
+                setClockBusy(true)
+                setErr(null)
+                void props.onStartDesignClock?.()
+                  .catch((e) => setErr(e instanceof Error ? e.message : 'No se pudo iniciar el reloj'))
+                  .finally(() => setClockBusy(false))
+              }}
+            >
+              {clockBusy ? 'Iniciando…' : 'Inicio'}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       {designRounds.length > 0 ? (
         <div className="mt-4 overflow-hidden rounded-xl border border-slate-300 bg-white">

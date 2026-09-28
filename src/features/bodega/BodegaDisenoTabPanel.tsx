@@ -646,8 +646,8 @@ export function BodegaDisenoTabPanel(props: Props) {
 
           {props.designEntregaVersions.length === 0 ? (
             <div className="rounded-xl border border-slate-300 bg-white px-4 py-4 text-[13px] text-slate-700">
-              <strong>Aún no hay entregas.</strong> Cuando subas el .x_t, el proyecto pasa a revisión del supervisor y
-              el reloj de diseño se pausa.
+              <strong>Aún no hay entregas.</strong> Pulsa Inicio para contar el tiempo. Al subir el .x_t el reloj se
+              cierra y el proyecto pasa a revisión del supervisor.
             </div>
           ) : (
             <div>

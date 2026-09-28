@@ -30,8 +30,11 @@ export function BodegaProjectDeliveryFullscreen(props: Props) {
               <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-blue-200/90">
                 Archivos y entregas
               </p>
-              <h2 className="mt-1 truncate text-lg font-bold sm:text-xl" title={props.projectName}>
+              <h2 className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-lg font-bold sm:text-xl">
                 <span className="font-mono">{props.folio}</span>
+                <span className="truncate font-semibold text-blue-50" title={props.projectName}>
+                  {props.projectName}
+                </span>
               </h2>
               {props.headerActions ? (
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">{props.headerActions}</div>
