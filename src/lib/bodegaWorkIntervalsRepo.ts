@@ -66,26 +66,33 @@ export function orderedLaneLabels(): { lane: BodegaWorkIntervalLane; label: stri
   return LANES_ORDER.map((lane) => ({ lane, label: laneLabelEs(lane) }))
 }
 
+const WORK_PROJECT_BATCH = 60
+
 export async function fetchWorkIntervalsForProjects(
   projectIds: string[],
 ): Promise<Map<string, BodegaWorkIntervalRow[]>> {
   const out = new Map<string, BodegaWorkIntervalRow[]>()
-  if (projectIds.length === 0) return out
+  const ids = [...new Set(projectIds.map((id) => id.trim()).filter(Boolean))]
+  if (ids.length === 0) return out
   const sb = getSupabase()
-  const { data, error } = await sb
-    .from('bodega_project_work_intervals')
-    .select('id, project_id, orden_compra_id, actor_id, lane, started_at, ended_at, meta, created_at')
-    .in('project_id', projectIds)
-    .order('started_at', { ascending: true })
-  if (error) {
-    const msg = [error.message, error.details].filter(Boolean).join(' ')
-    if (/does not exist|could not find|404|PGRST205/i.test(msg)) return out
-    throw error
-  }
-  for (const row of (data as BodegaWorkIntervalRow[] | null) ?? []) {
-    const pid = row.project_id
-    if (!out.has(pid)) out.set(pid, [])
-    out.get(pid)!.push(row)
+  for (let i = 0; i < ids.length; i += WORK_PROJECT_BATCH) {
+    const chunk = ids.slice(i, i + WORK_PROJECT_BATCH)
+    const { data, error } = await sb
+      .from('bodega_project_work_intervals')
+      .select('id, project_id, orden_compra_id, actor_id, lane, started_at, ended_at, meta, created_at')
+      .in('project_id', chunk)
+      .order('started_at', { ascending: true })
+      .range(0, 9999)
+    if (error) {
+      const msg = [error.message, error.details].filter(Boolean).join(' ')
+      if (/does not exist|could not find|404|PGRST205/i.test(msg)) return out
+      throw error
+    }
+    for (const row of (data as BodegaWorkIntervalRow[] | null) ?? []) {
+      const pid = row.project_id
+      if (!out.has(pid)) out.set(pid, [])
+      out.get(pid)!.push(row)
+    }
   }
   return out
 }

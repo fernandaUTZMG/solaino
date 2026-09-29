@@ -14,6 +14,18 @@ import {
 
 type TabId = 'proyectos' | 'oc'
 
+function reportErrorText(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (error && typeof error === 'object') {
+    const row = error as { message?: unknown; hint?: unknown; details?: unknown }
+    const parts = [row.message, row.hint, row.details].filter(
+      (part): part is string => typeof part === 'string' && part.trim().length > 0,
+    )
+    if (parts.length > 0) return parts.join(' — ')
+  }
+  return 'No se pudieron cargar los reportes'
+}
+
 function formatDateEs(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -214,7 +226,7 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
       setBundle(await fetchBodegaReportesBundle())
     } catch (e) {
       setBundle(null)
-      setError(e instanceof Error ? e.message : 'No se pudieron cargar los reportes')
+      setError(reportErrorText(e))
     } finally {
       setLoading(false)
     }

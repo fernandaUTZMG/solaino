@@ -48,36 +48,60 @@ export function pieceLaneLabelEs(lane: BodegaPieceLane): string {
   }
 }
 
+const PROJECT_ID_BATCH = 60
+
+function chunksOf(ids: string[], size: number): string[][] {
+  const out: string[][] = []
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size))
+  return out
+}
+
 export async function fetchPieceIntervalsForProjects(
   projectIds: string[],
 ): Promise<Map<string, BodegaPieceIntervalRow[]>> {
   const out = new Map<string, BodegaPieceIntervalRow[]>()
-  if (projectIds.length === 0) return out
+  const ids = [...new Set(projectIds.map((id) => id.trim()).filter(Boolean))]
+  if (ids.length === 0) return out
   const sb = getSupabase()
-  const { data: pieces, error: pe } = await sb
-    .from('bodega_project_pieces')
-    .select('id, project_id')
-    .in('project_id', projectIds)
-  if (pe) throw pe
-  const pieceList = (pieces as Array<{ id: string; project_id: string }> | null) ?? []
+  const pieceList: Array<{ id: string; project_id: string }> = []
+  for (const chunk of chunksOf(ids, PROJECT_ID_BATCH)) {
+    for (let from = 0; ; from += 1000) {
+      const { data: pieces, error: pe } = await sb
+        .from('bodega_project_pieces')
+        .select('id, project_id')
+        .in('project_id', chunk)
+        .range(from, from + 999)
+      if (pe) throw pe
+      const page = (pieces as Array<{ id: string; project_id: string }> | null) ?? []
+      pieceList.push(...page)
+      if (page.length < 1000) break
+    }
+  }
   const pieceToProject = new Map(pieceList.map((p) => [p.id, p.project_id]))
   const pieceIds = pieceList.map((p) => p.id)
   if (pieceIds.length === 0) return out
-  const { data, error } = await sb
-    .from('bodega_piece_work_intervals')
-    .select('id, piece_id, actor_id, lane, started_at, ended_at, meta, created_at')
-    .in('piece_id', pieceIds)
-    .order('started_at', { ascending: true })
-  if (error) {
-    const msg = [error.message, error.details].filter(Boolean).join(' ')
-    if (/does not exist|could not find|404|PGRST205/i.test(msg)) return out
-    throw error
-  }
-  for (const row of (data as BodegaPieceIntervalRow[] | null) ?? []) {
-    const pid = pieceToProject.get(row.piece_id)
-    if (!pid) continue
-    if (!out.has(pid)) out.set(pid, [])
-    out.get(pid)!.push(row)
+  for (const chunk of chunksOf(pieceIds, PROJECT_ID_BATCH)) {
+    for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb
+      .from('bodega_piece_work_intervals')
+      .select('id, piece_id, actor_id, lane, started_at, ended_at, meta, created_at')
+      .in('piece_id', chunk)
+      .order('started_at', { ascending: true })
+      .range(from, from + 999)
+    if (error) {
+      const msg = [error.message, error.details].filter(Boolean).join(' ')
+      if (/does not exist|could not find|404|PGRST205/i.test(msg)) return out
+      throw error
+    }
+    const page = (data as BodegaPieceIntervalRow[] | null) ?? []
+    for (const row of page) {
+      const pid = pieceToProject.get(row.piece_id)
+      if (!pid) continue
+      if (!out.has(pid)) out.set(pid, [])
+      out.get(pid)!.push(row)
+    }
+    if (page.length < 1000) break
+    }
   }
   return out
 }

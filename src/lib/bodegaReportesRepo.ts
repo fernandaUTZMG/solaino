@@ -124,7 +124,22 @@ function ocGroupKey(p: BodegaProjectListRow): string {
   return `txt:${ord}__${cli}`
 }
 
-const PIECE_BATCH = 80
+const PIECE_BATCH = 60
+
+const PIECE_STAGE_SELECT =
+  'id, project_id, programmer_bucket, programming_finished_at, programming_exit_kind, perfilado_completed_at, maquinado_completed_at, armado_completed_at, detallado_completed_at, post_maquinado_route, post_perfilado_programming_bucket'
+
+function describeQueryError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (error && typeof error === 'object') {
+    const e = error as { message?: unknown; hint?: unknown; details?: unknown }
+    const parts = [e.message, e.hint, e.details].filter(
+      (part): part is string => typeof part === 'string' && part.trim().length > 0,
+    )
+    if (parts.length > 0) return parts.join(' — ')
+  }
+  return 'No se pudieron cargar los reportes'
+}
 
 async function fetchReportPieces(projectIds: string[]): Promise<Map<string, BodegaProjectPieceRow[]>> {
   const m = new Map<string, BodegaProjectPieceRow[]>()
@@ -132,17 +147,30 @@ async function fetchReportPieces(projectIds: string[]): Promise<Map<string, Bode
   const sb = getSupabase()
   for (let i = 0; i < projectIds.length; i += PIECE_BATCH) {
     const chunk = projectIds.slice(i, i + PIECE_BATCH)
-    const { data, error } = await sb.from('bodega_project_pieces').select('*').in('project_id', chunk)
+    for (let from = 0; ; from += 1000) {
+    let { data, error } = await sb
+      .from('bodega_project_pieces')
+      .select(PIECE_STAGE_SELECT)
+      .in('project_id', chunk)
+      .range(from, from + 999)
+    if (error && /column|42703|PGRST204|schema cache/i.test([error.message, error.details].filter(Boolean).join(' '))) {
+      const fallback = await sb.from('bodega_project_pieces').select('*').in('project_id', chunk).range(from, from + 999)
+      data = fallback.data
+      error = fallback.error
+    }
     if (error) {
       const msg = [error.message, error.details].filter(Boolean).join(' ')
       if (/does not exist|could not find|404|PGRST205/i.test(msg)) return m
-      throw error
+      throw new Error(describeQueryError(error))
     }
-    for (const row of (data as BodegaProjectPieceRow[]) ?? []) {
+    const page = (data as BodegaProjectPieceRow[]) ?? []
+    for (const row of page) {
       const pid = row.project_id
       if (!pid) continue
       if (!m.has(pid)) m.set(pid, [])
       m.get(pid)!.push(row)
+    }
+    if (page.length < 1000) break
     }
   }
   return m
@@ -162,12 +190,12 @@ async function fetchReportPhotos(projectIds: string[]): Promise<Map<string, Proj
     if (full.error) {
       const msg = [full.error.message, full.error.details].filter(Boolean).join(' ')
       if (/does not exist|could not find|404|PGRST205/i.test(msg)) return m
-      if (!/piece_id|42703|PGRST204/i.test(msg)) throw full.error
+      if (!/piece_id|42703|PGRST204/i.test(msg)) throw new Error(describeQueryError(full.error))
       const legacy = await sb
         .from('project_piece_photos')
         .select('id, project_id, storage_path, filename, uploaded_by, created_at')
         .in('project_id', chunk)
-      if (legacy.error) throw legacy.error
+      if (legacy.error) throw new Error(describeQueryError(legacy.error))
       rows = ((legacy.data as Omit<ProjectPiecePhotoRow, 'piece_id'>[]) ?? []).map((r) => ({ ...r, piece_id: null }))
     }
     for (const row of rows) {
@@ -191,7 +219,7 @@ async function fetchRoutesConfirmed(projectIds: string[]): Promise<Map<string, b
     if (error) {
       const msg = [error.message, error.details].filter(Boolean).join(' ')
       if (/does not exist|programming_routes_confirmed_at|42703|PGRST204/i.test(msg)) return m
-      throw error
+      throw new Error(describeQueryError(error))
     }
     for (const row of (data as { id: string; programming_routes_confirmed_at: string | null }[]) ?? []) {
       m.set(row.id, row.programming_routes_confirmed_at != null)
