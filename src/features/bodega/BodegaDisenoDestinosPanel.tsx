@@ -10,7 +10,7 @@ import {
   upsertPieceFromDesignPath,
 } from '../../lib/bodegaPiecesRepo'
 import { isSwPartsAssignmentComplete } from '../../lib/bodegaProgrammerFlow'
-import { pieceForZipPath } from '../../lib/bodegaXtAssemblies'
+import { pieceForZipPath, piecesBelongingToDesignPaths } from '../../lib/bodegaXtAssemblies'
 import type { BodegaProjectPieceRow } from '../../lib/bodegaPiecesRepo'
 import { filterSwPartZipPaths, isZipPathAllowedForProgrammerBucket } from '../../lib/zipDesignPackage'
 import { pieceDisplayLabel } from '../../lib/bodegaStep3Supervisor'
@@ -18,6 +18,7 @@ import { displayLabelFromDesignPath } from '../../lib/designZipScope'
 import { expectedPlanoFileName, fileRenamedToExpectedPlano } from '../../lib/designPlanoNaming'
 import { applyDesignPlanosAutoAssign } from '../../lib/bodegaDesignPlanosAutoAssign'
 import { pieceHasPlano } from '../../lib/bodegaPieceDesignDrawing'
+import { sendProjectToPhotoStage } from '../../lib/bodegaExternalProvider'
 import { withDeliveryScrollRestore } from './useBodegaPieceQueueBulk.ts'
 import { DesignPathIdentity } from './DesignPathIdentity.tsx'
 import { BodegaPiecePlanoAttach } from './BodegaPiecePlanoAttach.tsx'
@@ -68,12 +69,16 @@ type Props = {
   designConfirmed?: boolean
   onReload: () => Promise<void>
   onConfirmed?: () => void | Promise<void>
+  /** El proyecto ya está en la etapa de foto. */
+  sentToPhoto?: boolean
+  onSentToPhoto?: () => void | Promise<void>
 }
 
 export function BodegaDisenoDestinosPanel(props: Props) {
   const canEditRole = canUploadBodegaDesign(props.role) || canManageBodegaLikeAdmin(props.role)
   const designConfirmed = props.designConfirmed !== false
   const canEdit = canEditRole && designConfirmed
+  const canSendToPhoto = canManageBodegaLikeAdmin(props.role) && canEdit && !props.routesLocked
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [okMsg, setOkMsg] = useState<string | null>(null)
@@ -84,13 +89,12 @@ export function BodegaDisenoDestinosPanel(props: Props) {
     await withDeliveryScrollRestore(() => props.onReload())
   }
 
-  const partPaths = useMemo(() => {
-    const fromDesign = filterSwPartZipPaths(props.designPaths)
-    if (fromDesign.length > 0) return fromDesign
-    return props.pieces
-      .map((p) => p.source_path)
-      .filter((p): p is string => Boolean(p && filterSwPartZipPaths([p]).length > 0))
-  }, [props.designPaths, props.pieces])
+  const partPaths = useMemo(() => filterSwPartZipPaths(props.designPaths), [props.designPaths])
+
+  const piecesOnThisXt = useMemo(
+    () => piecesBelongingToDesignPaths(props.pieces, partPaths),
+    [props.pieces, partPaths],
+  )
 
   const pending = useMemo(() => {
     return partPaths.filter((path) => !hasBucket(pieceForZipPath(props.pieces, path)))
@@ -105,6 +109,18 @@ export function BodegaDisenoDestinosPanel(props: Props) {
     () => isSwPartsAssignmentComplete(props.pieces, partPaths),
     [props.pieces, partPaths],
   )
+
+  if (props.sentToPhoto) {
+    return (
+      <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-950">
+        <p className="font-bold">Este proyecto pasó a la foto</p>
+        <p className="mt-1">
+          No se hace en el taller. Programación, maquinado y perfilado no reciben las piezas. El encargado o el admin lo
+          finalizan en la pestaña Fotos, con foto o sin foto.
+        </p>
+      </div>
+    )
+  }
 
   if (!canEdit && partPaths.length === 0) return null
 
@@ -224,6 +240,25 @@ export function BodegaDisenoDestinosPanel(props: Props) {
     }
   }
 
+  async function sendAllToPhoto() {
+    if (!canSendToPhoto || props.sentToPhoto) return
+    const ok = window.confirm(
+      'Este proyecto no se hace en el taller. Pasará a la foto para que el encargado o el admin lo finalicen, con foto o sin foto. No irá a programación, maquinado ni perfilado.',
+    )
+    if (!ok) return
+    setBusy(true)
+    setErr(null)
+    setOkMsg(null)
+    try {
+      await sendProjectToPhotoStage(props.projectId)
+      await props.onSentToPhoto?.()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo pasar el proyecto a la foto')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function moveToPending(pieceId: string) {
     if (!canEdit || props.routesLocked) return
     setBusy(true)
@@ -328,8 +363,8 @@ export function BodegaDisenoDestinosPanel(props: Props) {
       </div>
 
       <p className="text-[13px] text-slate-600">
-        CNC {countBucket(props.pieces, 'cnc')} · Torno {countBucket(props.pieces, 'torno')} · Perfiladora{' '}
-        {countBucket(props.pieces, 'perfilado')} · Accesorio {countBucket(props.pieces, 'accesorios')} · Pendientes{' '}
+        CNC {countBucket(piecesOnThisXt, 'cnc')} · Torno {countBucket(piecesOnThisXt, 'torno')} · Perfiladora{' '}
+        {countBucket(piecesOnThisXt, 'perfilado')} · Accesorio {countBucket(piecesOnThisXt, 'accesorios')} · Pendientes{' '}
         {pending.length}
       </p>
 
@@ -345,6 +380,8 @@ export function BodegaDisenoDestinosPanel(props: Props) {
           canEdit && !props.routesLocked && pending.length > 0 ? `Predeterminar ${pending.length} a CNC` : null
         }
         onBulkCnc={() => void assignAllPendingToCnc()}
+        bulkPhotoLabel={canSendToPhoto ? 'Predeterminar todo a fotos' : null}
+        onBulkPhoto={() => void sendAllToPhoto()}
         pieces={props.pieces}
         designPaths={props.designPaths}
         projectFolio={props.projectFolio}
@@ -362,7 +399,8 @@ export function BodegaDisenoDestinosPanel(props: Props) {
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
           <p className="text-[14px] font-bold text-section-navy">Ya dirigidas ({assigned.length})</p>
           <p className="text-[12px] text-slate-500">
-            Solo CNC llega a la programadora. Puedes cambiar el destino a cualquiera de los cuatro.
+            Solo CNC llega a la programadora. Aquí, en las piezas ya separadas, también puedes subir el plano PDF de las
+            que van a CNC, torno o perfiladora.
           </p>
         </div>
         {assigned.length === 0 ? (
@@ -431,7 +469,7 @@ export function BodegaDisenoDestinosPanel(props: Props) {
                       ) : null}
                     </div>
                   </div>
-                  {(bucket === 'torno' || bucket === 'perfilado' || withPlano) && p.source_path ? (
+                  {(bucket === 'cnc' || bucket === 'torno' || bucket === 'perfilado' || withPlano) && p.source_path ? (
                     <div className="mt-2">
                       <BodegaPiecePlanoAttach
                         compact
@@ -487,6 +525,8 @@ function PendingSection(props: {
   onSearchChange: (value: string) => void
   bulkCncLabel?: string | null
   onBulkCnc?: () => void
+  bulkPhotoLabel?: string | null
+  onBulkPhoto?: () => void
   pieces: BodegaProjectPieceRow[]
   designPaths: string[]
   projectFolio: string
@@ -505,18 +545,33 @@ function PendingSection(props: {
         <p className="text-[14px] font-bold text-section-navy">{props.title}</p>
         <p className="text-[12px] text-slate-500">{props.subtitle}</p>
       </div>
-      {props.totalCount > 0 ? (
+      {props.totalCount > 0 || props.bulkPhotoLabel ? (
         <div className="space-y-3 border-b border-slate-100 bg-white px-4 py-3">
-          {props.bulkCncLabel ? (
-            <button
-              type="button"
-              disabled={props.busy}
-              className="min-h-[44px] w-full rounded-xl bg-section-navy px-4 py-2.5 text-[13px] font-bold text-white shadow-sm hover:brightness-110 disabled:opacity-50 sm:w-auto"
-              onClick={() => props.onBulkCnc?.()}
-            >
-              {props.busy ? 'Asignando…' : props.bulkCncLabel}
-            </button>
+          {props.bulkCncLabel || props.bulkPhotoLabel ? (
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              {props.bulkCncLabel ? (
+                <button
+                  type="button"
+                  disabled={props.busy}
+                  className="min-h-[44px] w-full rounded-xl bg-section-navy px-4 py-2.5 text-[13px] font-bold text-white shadow-sm hover:brightness-110 disabled:opacity-50 sm:w-auto"
+                  onClick={() => props.onBulkCnc?.()}
+                >
+                  {props.busy ? 'Espera…' : props.bulkCncLabel}
+                </button>
+              ) : null}
+              {props.bulkPhotoLabel ? (
+                <button
+                  type="button"
+                  disabled={props.busy}
+                  className="min-h-[44px] w-full rounded-xl border border-amber-400 bg-amber-50 px-4 py-2.5 text-[13px] font-bold text-amber-950 shadow-sm hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
+                  onClick={() => props.onBulkPhoto?.()}
+                >
+                  {props.bulkPhotoLabel}
+                </button>
+              ) : null}
+            </div>
           ) : null}
+          {props.totalCount > 0 ? (
           <label className="block text-[12px] font-semibold text-slate-700">
             Buscar pieza
             <input
@@ -527,6 +582,7 @@ function PendingSection(props: {
               className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-[14px] text-slate-900 shadow-sm outline-none ring-section-navy/30 focus:ring-2"
             />
           </label>
+          ) : null}
         </div>
       ) : null}
       {props.paths.length === 0 ? (

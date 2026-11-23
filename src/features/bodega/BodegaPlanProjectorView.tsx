@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react'
+import { otherWorkshopPlanNote } from '../../lib/bodegaExternalProvider'
 import { weeklyPlanPrioridadDisplay } from '../../lib/bodegaProjectPrioridad'
 import { formatWeekRangeEs } from '../../lib/bodegaWeekCalendar'
 import { formatPlanDateLongEs } from '../../lib/bodegaWeeklyPlanExportCommon'
@@ -71,10 +72,19 @@ function ProjectorRow(props: { it: BodegaWeeklyPlanItemEnriched; index: number }
       <td className="border border-black px-2 py-1 text-left align-middle text-[clamp(9px,0.9vw,12px)] font-semibold uppercase leading-snug text-black">
         {it.proyecto_nombre}
       </td>
-      <DataBarCell pct={it.actual.diseno} />
-      <DataBarCell pct={it.actual.programacion} />
-      <DataBarCell pct={it.actual.maquinado} />
-      <DataBarCell pct={it.actual.armado} />
+      <td className={`${cellCls} text-left`}>{it.proveedor.trim() ? it.proveedor.toUpperCase() : '—'}</td>
+      {it.externalShop ? (
+        <td colSpan={4} className={`${cellCls} text-left font-bold leading-tight text-amber-950`}>
+          {otherWorkshopPlanNote(it.proveedor).place} {otherWorkshopPlanNote(it.proveedor).close}
+        </td>
+      ) : (
+        <>
+          <DataBarCell pct={it.actual.diseno} />
+          <DataBarCell pct={it.actual.programacion} />
+          <DataBarCell pct={it.actual.maquinado} />
+          <DataBarCell pct={it.actual.armado} />
+        </>
+      )}
       <td className={`${cellCls} text-[clamp(8px,0.8vw,11px)] leading-tight`}>
         {formatPlanDateLongEs(it.fecha_entrega)}
       </td>

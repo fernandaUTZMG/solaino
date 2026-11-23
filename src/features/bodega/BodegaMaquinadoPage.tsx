@@ -43,13 +43,13 @@ export function BodegaMaquinadoPage(props: { role: AppRole }) {
         <h1 className="text-xl font-bold text-section-navy">Maquinado CNC</h1>
         <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-slate-600">
           Solo piezas <strong>CNC</strong> con archivo de programación (cerradas sin perfilado).{' '}
-          <strong>Inicio</strong> / <strong>Fin</strong> por pieza, luego Armado o Detallado.
+          <strong>Inicio</strong> / <strong>Fin</strong> por pieza, y de ahí a detallado. El armado es después.
         </p>
         <ol className="mt-4 list-decimal space-y-1 pl-5 text-[13px] text-slate-600">
           <li>
             En Programación: termina CNC con archivo (sin perfilado). Perfilado va a Taller, no a esta cola.
           </li>
-          <li>Aquí: elige la pieza → Inicio → Fin → Armado o Detallado.</li>
+          <li>Aquí: elige la pieza → Inicio → Fin → Detallado. Luego, de detallado al armado.</li>
         </ol>
       </section>
 

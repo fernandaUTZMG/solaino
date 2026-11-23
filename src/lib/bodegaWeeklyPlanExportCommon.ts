@@ -77,18 +77,18 @@ export function formatPlanDateShortEs(iso: string | null | undefined): string {
   }
 }
 
-/** Promedio de avance real por etapa (solo proyectos activos en el plan). */
+/** Promedio de avance real por etapa. Cuenta cada renglón del plan; un finalizado vale 100. */
 export function averageStageActualPct(bundle: BodegaWeeklyPlanBundle): {
   diseno: number
   programacion: number
   maquinado: number
   armado: number
 } {
-  const active = bundle.items.filter((it) => !it.projectTerminado)
-  if (active.length === 0) {
+  const rows = bundle.items.filter((it) => !it.externalShop)
+  if (rows.length === 0) {
     return { diseno: 0, programacion: 0, maquinado: 0, armado: 0 }
   }
-  const sum = active.reduce(
+  const sum = rows.reduce(
     (acc, it) => ({
       diseno: acc.diseno + it.actual.diseno,
       programacion: acc.programacion + it.actual.programacion,
@@ -97,7 +97,7 @@ export function averageStageActualPct(bundle: BodegaWeeklyPlanBundle): {
     }),
     { diseno: 0, programacion: 0, maquinado: 0, armado: 0 },
   )
-  const n = active.length
+  const n = rows.length
   return {
     diseno: Math.round(sum.diseno / n),
     programacion: Math.round(sum.programacion / n),

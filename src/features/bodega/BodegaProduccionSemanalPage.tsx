@@ -5,7 +5,16 @@ import {
   listSelectableWeekKeys,
   weekMondayKey,
 } from '../../lib/bodegaWeekCalendar'
+import { fetchProduccionCausas, type ProduccionCausa, type ProduccionCausaEvento } from '../../lib/bodegaProduccionCausasRepo'
+import { fetchProduccionProjectCatalog, fetchProduccionProjectLive } from '../../lib/bodegaProduccionSemanalLive'
 import { downloadProduccionSemanalPdf } from '../../lib/bodegaProduccionSemanalPdf'
+import {
+  produccionWeekScore,
+  summarizeProduccionWeek,
+  type ProduccionProjectLive,
+  type ProduccionProjectPick,
+  type ProduccionWeekDayTasks,
+} from '../../lib/bodegaProduccionSemanalTasks'
 import {
   ensureProduccionSemanalBundle,
   updateProduccionSemanalDay,
@@ -57,11 +66,26 @@ export function BodegaProduccionSemanalPage(props: Props) {
   const [projectorExpanded, setProjectorExpanded] = useState(false)
   const [projectorRefreshing, setProjectorRefreshing] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [projects, setProjects] = useState<ProduccionProjectPick[]>([])
+  const [liveByProject, setLiveByProject] = useState<Map<string, ProduccionProjectLive>>(new Map())
+  const [causas, setCausas] = useState<ProduccionCausa[]>([])
+  const [causaEventos, setCausaEventos] = useState<ProduccionCausaEvento[]>([])
   const dirtyRef = useRef(false)
+  const daysRef = useRef<ProduccionSemanalDayRow[]>([])
 
   useEffect(() => {
     dirtyRef.current = dirty
   }, [dirty])
+
+  useEffect(() => {
+    daysRef.current = draftDays
+  }, [draftDays])
+
+  const reloadCausas = useCallback(async (dayIds: string[]) => {
+    const data = await fetchProduccionCausas(dayIds)
+    setCausas(data.causas)
+    setCausaEventos(data.eventos)
+  }, [])
 
   const weekOptions = useMemo(
     () => listSelectableWeekKeys(weekMondayKey(new Date()), 12, 8),
@@ -85,6 +109,16 @@ export function BodegaProduccionSemanalPage(props: Props) {
         setDraftLabels(cloned.labels)
         if (!opts?.silent) setDirty(false)
       }
+      const dayIds = (!opts?.silent || !dirtyRef.current ? data.days : daysRef.current).map((day) => day.id)
+      try {
+        await reloadCausas(dayIds)
+      } catch (causeError) {
+        setCausas([])
+        setCausaEventos([])
+        if (!opts?.silent) {
+          setError(causeError instanceof Error ? causeError.message : 'No se pudieron cargar las causas')
+        }
+      }
     } catch (e) {
       if (!opts?.silent) {
         setError(e instanceof Error ? e.message : 'No se pudo cargar el plan de producción')
@@ -94,11 +128,55 @@ export function BodegaProduccionSemanalPage(props: Props) {
       if (!opts?.silent) setLoading(false)
       else setProjectorRefreshing(false)
     }
-  }, [weekStart])
+  }, [reloadCausas, weekStart])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchProduccionProjectCatalog()
+      .then((rows) => {
+        if (!cancelled) setProjects(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const linkedProjectIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const day of draftDays) {
+      for (const task of [...day.disenadora_tareas, ...day.programacion_tareas, ...day.maquinado_tareas, ...day.armado_tareas]) {
+        if (task.projectId) ids.add(task.projectId)
+      }
+    }
+    return [...ids].sort().join(',')
+  }, [draftDays])
+
+  useEffect(() => {
+    const ids = linkedProjectIds ? linkedProjectIds.split(',') : []
+    let cancelled = false
+    const pull = () => {
+      void fetchProduccionProjectLive(ids, weekStart)
+        .then((rows) => {
+          if (!cancelled) setLiveByProject(rows)
+        })
+        .catch(() => {
+          if (!cancelled) setLiveByProject(new Map())
+        })
+    }
+    pull()
+    const timer = window.setInterval(pull, 45_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [linkedProjectIds, weekStart])
 
   useEffect(() => {
     if (!canManage) setViewMode('view')
@@ -162,7 +240,12 @@ export function BodegaProduccionSemanalPage(props: Props) {
             disenadora: day.disenadora,
             programacion: day.programacion,
             maquinado: day.maquinado,
+            armado: day.armado,
             comentarios: day.comentarios,
+            disenadora_tareas: day.disenadora_tareas,
+            programacion_tareas: day.programacion_tareas,
+            maquinado_tareas: day.maquinado_tareas,
+            armado_tareas: day.armado_tareas,
           }),
         ),
       )
@@ -183,10 +266,14 @@ export function BodegaProduccionSemanalPage(props: Props) {
   async function handleExportPdf() {
     if (!bundle) return
     try {
-      await downloadProduccionSemanalPdf({
-        plan: { ...bundle.plan, ...draftLabels },
-        days: draftDays,
-      })
+      await downloadProduccionSemanalPdf(
+        {
+          plan: { ...bundle.plan, ...draftLabels },
+          days: draftDays,
+        },
+        liveByProject,
+        causaEventos,
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo exportar PDF')
     }
@@ -197,7 +284,7 @@ export function BodegaProduccionSemanalPage(props: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-[min(100%,1200px)] space-y-4 print:max-w-none">
+    <div className="mx-auto max-w-[min(100%,1440px)] space-y-4 print:max-w-none">
       <style>{`
         @media print {
           body * { visibility: hidden !important; }
@@ -217,7 +304,7 @@ export function BodegaProduccionSemanalPage(props: Props) {
         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Producción</p>
         <h1 className="mt-1 text-xl font-bold text-slate-900">Producción semanal</h1>
         <p className="mt-1 text-[13px] text-slate-600">
-          Plan por día: diseño, programación, maquinado y comentarios. Una tarea por línea en cada celda.
+          Una tarea por línea. Si la unes a un proyecto, el avance sale de Bodega. En Armado también anotas quién ayudó. Si no la unes, márcala a mano. Meta diaria lista lo que hay que cumplir ese día. Avance real diario separa lo ya cumplido y lo que falta.
         </p>
       </header>
 
@@ -344,6 +431,10 @@ export function BodegaProduccionSemanalPage(props: Props) {
         </div>
       ) : null}
 
+      {draftDays.length > 0 ? (
+        <ProduccionWeekSummary days={draftDays} liveByProject={liveByProject} />
+      ) : null}
+
       {loading ? (
         <div className="flex justify-center py-16">
           <div className="h-9 w-9 animate-spin rounded-full border-2 border-slate-200 border-t-sky-700" aria-hidden />
@@ -357,6 +448,11 @@ export function BodegaProduccionSemanalPage(props: Props) {
             draftLabels={draftLabels}
             onDayChange={canManage ? patchDay : undefined}
             onLabelChange={canManage ? patchLabels : undefined}
+            projects={projects}
+            liveByProject={liveByProject}
+            causas={causas}
+            causaEventos={causaEventos}
+            onCausasChanged={() => reloadCausas(daysRef.current.map((day) => day.id))}
             printMode
           />
         </div>
@@ -367,6 +463,8 @@ export function BodegaProduccionSemanalPage(props: Props) {
           weekStart={weekStart}
           labels={draftLabels}
           days={draftDays}
+          liveByProject={liveByProject}
+          causaEventos={causaEventos}
           lastUpdated={lastRefresh}
           refreshing={projectorRefreshing}
           onMinimize={() => {
@@ -387,6 +485,25 @@ export function BodegaProduccionSemanalPage(props: Props) {
           onClose={stopProjector}
         />
       ) : null}
+    </div>
+  )
+}
+
+function ProduccionWeekSummary(props: {
+  days: ProduccionWeekDayTasks[]
+  liveByProject: Map<string, ProduccionProjectLive>
+}) {
+  const summary = summarizeProduccionWeek(props.days)
+  const week = produccionWeekScore(props.days, props.liveByProject)
+  if (summary.tareas === 0) return null
+  return (
+    <div className="produccion-semanal-no-print flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-[12px] font-semibold text-slate-700 shadow-sm">
+      {week.meta != null ? <span className="text-slate-900">Meta semanal {week.meta}%</span> : null}
+      {week.real != null ? <span className="text-emerald-800">Avance real semanal {week.real}%</span> : null}
+      <span>{summary.tareas} tareas</span>
+      <span className="text-sky-800">{summary.conProyecto} con proyecto</span>
+      <span className="text-emerald-800">{summary.marcadas} con avance a mano</span>
+      <span className="text-amber-800">{summary.sinTocar} sin avance a mano</span>
     </div>
   )
 }

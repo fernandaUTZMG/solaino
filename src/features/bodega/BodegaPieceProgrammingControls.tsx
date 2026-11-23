@@ -99,8 +99,8 @@ export function BodegaPieceProgrammingControls(props: Props) {
           label={`Tiempo — ${props.moduleLabel}`}
           hint={
             programmingActive
-              ? 'Cuenta solo lun–vie 8:00–17:30 desde que pulsaste Inicio. Sube el archivo y termina cuando acabes.'
-              : 'Pulsa Inicio para comenzar a contar el tiempo de esta pieza.'
+              ? 'Cuenta solo lun–vie 8:00–17:30 desde Inicio. El Fin es al subir el archivo programado.'
+              : 'Pulsa Inicio. El tiempo no empieza al entrar al proyecto.'
           }
           businessMinutes={elapsedSec / 60}
           businessMinutesLabel="Min. hábiles"

@@ -19,6 +19,8 @@ export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   status_changed: 'Estado',
   piece_photo_uploaded: 'Foto pieza',
   machine_uploaded: 'ZIP programación',
+  project_finalized: 'Proyecto finalizado',
+  external_ready_for_photo: 'Pasó a foto',
 }
 
 export const ACTIVITY_FILTER_OPTIONS: Array<{
@@ -46,7 +48,9 @@ export function activityHistorialCategory(type: string): ActivityHistorialFilter
   if (type === 'design_revision_requested') return 'rechazos'
   if (type === 'design_uploaded' || type === 'machine_uploaded') return 'subidas'
   if (type === 'avance_manual') return 'avance'
-  if (type === 'status_changed') return 'estado'
+  if (type === 'status_changed' || type === 'external_ready_for_photo' || type === 'project_finalized') {
+    return 'estado'
+  }
   return 'otros'
 }
 

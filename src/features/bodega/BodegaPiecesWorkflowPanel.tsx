@@ -34,6 +34,7 @@ type ProjectStatus =
   | 'diseno_aprobado'
   | 'en_programacion'
   | 'revision_programacion'
+  | 'en_foto'
   | 'terminado'
 
 type FlowMeta = {

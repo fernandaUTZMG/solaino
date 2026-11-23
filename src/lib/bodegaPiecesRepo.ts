@@ -17,7 +17,7 @@ import {
   orphanPerfiladoPdfPaths,
 } from './designZipPiecePairs'
 import { archiveAccesorioFromDesignZip } from './bodegaAccesorioArchive'
-import { designZipEntriesMatch, displayLabelFromDesignPath } from './designZipScope'
+import { designZipEntriesMatch, designZipEntryKey, displayLabelFromDesignPath } from './designZipScope'
 import { isCadLikeZipPath, isPerfiladoPdfZipPath, isSwPartZipPath } from './zipDesignPackage'
 import { parseHmsToSeconds } from './maquinadoEstimatedTime'
 
@@ -224,10 +224,19 @@ export async function fetchPiecesQueuePerfilado(): Promise<BodegaProjectPieceWit
   if (e1 && !/does not exist|PGRST205/i.test([e1.message, e1.details].join(' '))) throw e1
   if (e2 && !/does not exist|PGRST205/i.test([e2.message, e2.details].join(' '))) throw e2
 
-  return mergePerfiladoQueueRows(
-    fromProgramming as Record<string, unknown>[] | null,
-    fromAssignment as Record<string, unknown>[] | null,
+  return omitProjectsWaitingExternalPhoto(
+    mergePerfiladoQueueRows(
+      fromProgramming as Record<string, unknown>[] | null,
+      fromAssignment as Record<string, unknown>[] | null,
+    ),
   )
+}
+
+/** Otro proveedor: el proyecto ya está en foto y no entra a las colas del taller. */
+function omitProjectsWaitingExternalPhoto<T extends { bodega_projects: ProjectSnippetForPiece | null }>(
+  rows: T[],
+): T[] {
+  return rows.filter((p) => p.bodega_projects?.status !== 'en_foto')
 }
 
 function mapMaquinadoQueueRows(rows: Record<string, unknown>[] | null): BodegaProjectPieceWithProject[] {
@@ -254,7 +263,7 @@ export async function fetchPiecesQueueMaquinado(): Promise<BodegaProjectPieceWit
 
   if (error && !/does not exist|PGRST205/i.test([error.message, error.details].join(' '))) throw error
 
-  return mapMaquinadoQueueRows(data as Record<string, unknown>[] | null)
+  return omitProjectsWaitingExternalPhoto(mapMaquinadoQueueRows(data as Record<string, unknown>[] | null))
 }
 
 /** Maquinado del proyecto (programadora en pestaña CNC). */
@@ -273,7 +282,7 @@ export async function fetchProjectMaquinadoQueue(projectId: string): Promise<Bod
 
   if (error && !/does not exist|PGRST205/i.test([error.message, error.details].join(' '))) throw error
 
-  return mapMaquinadoQueueRows(data as Record<string, unknown>[] | null)
+  return omitProjectsWaitingExternalPhoto(mapMaquinadoQueueRows(data as Record<string, unknown>[] | null))
 }
 
 export async function fetchProjectPiecesQueuePerfilado(projectId: string): Promise<BodegaProjectPieceWithProject[]> {
@@ -282,6 +291,29 @@ export async function fetchProjectPiecesQueuePerfilado(projectId: string): Promi
 
 export async function fetchProjectPiecesQueueArmado(projectId: string): Promise<BodegaProjectPieceWithProject[]> {
   return (await fetchPiecesQueueArmado()).filter((p) => p.project_id === projectId)
+}
+
+/** Piezas de proyectos en curso, para armar cada proyecto completo. */
+export async function fetchPiecesForMassArmado(): Promise<BodegaProjectPieceWithProject[]> {
+  const sb = getSupabase()
+  const sel = '*, bodega_projects!inner(folio, nombre, status, programming_routes_confirmed_at)'
+  const { data, error } = await sb
+    .from('bodega_project_pieces')
+    .select(sel)
+    .in('bodega_projects.status', ['en_programacion', 'revision_programacion'])
+
+  if (error) {
+    const msg = [error.message, error.details].join(' ')
+    if (/does not exist|PGRST205/i.test(msg)) return []
+    throw error
+  }
+
+  return (
+    (data as Record<string, unknown>[] | null)?.map((row) => ({
+      ...normalizePieceRow(row),
+      bodega_projects: row.bodega_projects as ProjectSnippetForPiece | null,
+    })) ?? []
+  )
 }
 
 export async function fetchProjectPiecesQueueDetallado(projectId: string): Promise<BodegaProjectPieceWithProject[]> {
@@ -306,7 +338,7 @@ export async function fetchPiecesQueueArmado(): Promise<BodegaProjectPieceWithPr
       bodega_projects: row.bodega_projects as ProjectSnippetForPiece | null,
     })) ?? []
 
-  return rows.filter((p) => pieceEligibleForArmado(p))
+  return omitProjectsWaitingExternalPhoto(rows.filter((p) => pieceEligibleForArmado(p)))
 }
 
 /** Detallado pendiente: tras perfilado, maquinado→detallado, o armado previo (CNC→armado→detallado). */
@@ -327,7 +359,7 @@ export async function fetchPiecesQueueDetallado(): Promise<BodegaProjectPieceWit
       bodega_projects: row.bodega_projects as ProjectSnippetForPiece | null,
     })) ?? []
 
-  return rows.filter((p) => pieceEligibleForDetallado(p))
+  return omitProjectsWaitingExternalPhoto(rows.filter((p) => pieceEligibleForDetallado(p)))
 }
 
 /** Perfilado en taller terminado y ruta clásica a detallado (sin 2ª programación CNC/Torno). */
@@ -352,8 +384,6 @@ export function pieceEligibleForDetallado(p: BodegaProjectPieceRow): boolean {
   ) {
     return true
   }
-
-  if (p.armado_completed_at != null) return true
 
   return false
 }
@@ -505,6 +535,16 @@ export async function updateProgrammingPieceFile(args: {
 }
 
 export type PieceStageMarker = 'perfilado' | 'maquinado' | 'armado' | 'detallado'
+
+/** Cierra el armado de todas las piezas del proyecto de un solo paso. */
+export async function markProjectPiecesArmadoCompleted(pieceIds: string[]): Promise<void> {
+  const ids = [...new Set(pieceIds.map((id) => id.trim()).filter(Boolean))]
+  if (ids.length === 0) return
+  const sb = getSupabase()
+  const now = new Date().toISOString()
+  const { error } = await sb.from('bodega_project_pieces').update({ armado_completed_at: now }).in('id', ids)
+  if (error) throw error
+}
 
 export async function markPieceStageCompleted(args: { pieceId: string; stage: PieceStageMarker }): Promise<void> {
   const col =
@@ -922,6 +962,92 @@ export async function syncProjectPiecesFromDesignPathsDetailed(
   return { added, removedRedundantPdf }
 }
 
+function pieceKeepScore(p: BodegaProjectPieceRow): number {
+  let score = 0
+  if (p.programmer_bucket) score += 100
+  if (p.programming_finished_at) score += 40
+  if (p.programming_file_storage_path) score += 20
+  if (p.maquinado_completed_at) score += 30
+  if (p.perfilado_completed_at) score += 15
+  if (p.detallado_completed_at) score += 15
+  if (p.armado_completed_at) score += 15
+  return score
+}
+
+async function deletePieceRows(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const sb = getSupabase()
+  for (let i = 0; i < ids.length; i += 40) {
+    const chunk = ids.slice(i, i + 40)
+    await sb.from('bodega_piece_work_intervals').delete().in('piece_id', chunk)
+    await sb.from('project_piece_photos').delete().in('piece_id', chunk)
+    await sb.from('design_version_piece_reviews').delete().in('piece_id', chunk)
+    const { error } = await sb.from('bodega_project_pieces').delete().in('id', chunk)
+    if (error) {
+      const msg = [error.message, error.details, error.code].filter(Boolean).join(' ')
+      if (/permission|row-level|rls|42501|403/i.test(msg)) return
+      throw error
+    }
+  }
+}
+
+/**
+ * La lista de un proyecto es solo la de su .x_t.
+ * Crea las que faltan, deja una fila por nombre y quita las que no vienen en ese archivo.
+ */
+export async function syncProjectPiecesToDesignNames(projectId: string, names: string[]): Promise<BodegaProjectPieceRow[]> {
+  const wanted = new Map<string, string>()
+  for (const raw of names) {
+    const norm = raw.trim().replaceAll('\\', '/')
+    if (!norm || !isSwPartZipPath(norm)) continue
+    const key = designZipEntryKey(norm)
+    if (!wanted.has(key)) wanted.set(key, norm)
+  }
+  if (wanted.size === 0) return fetchProjectPieces(projectId)
+
+  const existing = await fetchProjectPieces(projectId)
+  const groups = new Map<string, BodegaProjectPieceRow[]>()
+  for (const piece of existing) {
+    const key = designZipEntryKey(piece.source_path || piece.label)
+    const list = groups.get(key) ?? []
+    list.push(piece)
+    groups.set(key, list)
+  }
+
+  const dropIds: string[] = []
+  for (const [key, rows] of groups) {
+    if (!wanted.has(key)) {
+      for (const row of rows) {
+        if (!pieceHasWorkflowProgress(row)) dropIds.push(row.id)
+      }
+      continue
+    }
+    const ranked = [...rows].sort((a, b) => {
+      const score = pieceKeepScore(b) - pieceKeepScore(a)
+      if (score !== 0) return score
+      return String(a.created_at ?? '').localeCompare(String(b.created_at ?? ''))
+    })
+    dropIds.push(...ranked.slice(1).map((row) => row.id))
+  }
+  await deletePieceRows(dropIds)
+
+  const present = new Set<string>()
+  for (const piece of existing) {
+    if (dropIds.includes(piece.id)) continue
+    present.add(designZipEntryKey(piece.source_path || piece.label))
+  }
+  for (const [key, norm] of wanted) {
+    if (present.has(key)) continue
+    await insertProjectPiece({
+      projectId,
+      label: displayLabelFromDesignPath(norm),
+      sourcePath: norm,
+    })
+    present.add(key)
+  }
+  return fetchProjectPieces(projectId)
+}
+
 /** PDF de plano emparejado con la pieza (misma base de nombre en el ZIP de diseño). */
 export function designDrawingPdfPathForPiece(
   piece: Pick<
@@ -1154,6 +1280,43 @@ export async function updatePieceFinishSpecsBatch(
   await Promise.all(updates.map((u) => updatePieceFinishSpec(u)))
 }
 
+function pieceHasDestination(piece: BodegaProjectPieceRow): boolean {
+  return (
+    piece.programmer_bucket === 'cnc' ||
+    piece.programmer_bucket === 'torno' ||
+    piece.programmer_bucket === 'perfilado' ||
+    piece.programmer_bucket === 'accesorios'
+  )
+}
+
+/** Si el archivo nuevo deja una pieza sin destino, quita la confirmación para poder asignarla. */
+export async function reopenProgrammingRoutesIfNamedPiecesLackDestination(
+  projectId: string,
+  names: string[],
+  pieces: BodegaProjectPieceRow[],
+): Promise<boolean> {
+  const wanted = new Set(names.map((name) => designZipEntryKey(name)))
+  const missing = pieces.some((piece) => {
+    const key = designZipEntryKey(piece.source_path || piece.label)
+    return wanted.has(key) && !pieceHasDestination(piece)
+  })
+  if (!missing) return false
+  const meta = await fetchProjectPieceFlowMeta(projectId)
+  if (!meta?.programming_routes_confirmed_at) return false
+  const sb = getSupabase()
+  const { error } = await sb.rpc('bodega_reopen_programming_routes', { p_project_id: projectId })
+  if (error) {
+    const msg = [error.message, error.details, error.hint].filter(Boolean).join(' — ')
+    if (/could not find|PGRST202|schema cache/i.test(msg)) {
+      throw new Error(
+        'Falta abrir los destinos en la base. Ejecuta supabase/patch_bodega_reopen_programming_routes.sql en Supabase.',
+      )
+    }
+    throw new Error(msg || 'No se pudo abrir el proyecto para asignar la pieza sin destino')
+  }
+  return true
+}
+
 export async function updateProgrammingRoutesConfirmed(projectId: string): Promise<void> {
   const sb = getSupabase()
   const { error } = await sb.rpc('bodega_confirm_programming_routes', { p_project_id: projectId })
@@ -1197,8 +1360,19 @@ export async function updateDesignContratiempoNotes(projectId: string, notes: st
   throw rpcErr
 }
 
-export async function finalizeProjectBySupervisor(projectId: string): Promise<void> {
+export async function finalizeProjectBySupervisor(
+  projectId: string,
+  sinFoto = false,
+  nota = '',
+): Promise<void> {
   const sb = getSupabase()
-  const { error } = await sb.rpc('bodega_supervisor_finalize_project', { p_project_id: projectId })
-  if (error) throw error
+  const { error } = await sb.rpc('bodega_supervisor_finalize_project', {
+    p_project_id: projectId,
+    p_sin_foto: sinFoto,
+    p_nota: nota.trim(),
+  })
+  if (error) {
+    const msg = [error.message, error.details, error.hint].filter(Boolean).join(' — ')
+    throw new Error(msg || 'No se pudo finalizar el proyecto')
+  }
 }

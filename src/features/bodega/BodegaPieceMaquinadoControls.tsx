@@ -44,7 +44,7 @@ const STEPS = [
   {
     n: 3,
     title: 'Terminar maquinado',
-    hint: 'Pulsa Fin y envía la pieza a Armado o Detallado.',
+    hint: 'Pulsa Fin. La pieza pasa a detallado y, al terminar, al armado.',
   },
 ] as const
 
@@ -193,7 +193,7 @@ export function BodegaPieceMaquinadoControls(props: Props) {
           </p>
           <p className="mt-2 text-[12px] leading-relaxed text-slate-600">
             {active
-              ? 'Cronómetro activo — al terminar elige Armado o Detallado.'
+              ? 'Cronómetro activo — al terminar pasa a detallado.'
               : 'Pulsa Inicio cuando empieces a maquinar esta pieza. El tiempo se detiene al pulsar Fin.'}
           </p>
           {props.minutes > 0 ? (
@@ -209,7 +209,7 @@ export function BodegaPieceMaquinadoControls(props: Props) {
           label="Tiempo — Maquinado"
           hint={
             active
-              ? 'El reloj corre desde Inicio. Al terminar elige Armado o Detallado.'
+              ? 'El reloj corre desde Inicio. Al terminar la pieza pasa a detallado.'
               : 'Pulsa Inicio cuando la pieza entre a la máquina CNC.'
           }
           businessMinutes={props.minutes}
@@ -233,7 +233,7 @@ export function BodegaPieceMaquinadoControls(props: Props) {
               <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-[14px] font-bold text-slate-900">Fin de maquinado</p>
                 <p className="text-[13px] leading-relaxed text-slate-600">
-                  ¿A dónde envías la pieza después de maquinarla?
+                  Al terminar, la pieza pasa a detallado. El armado es después, cuando el detallado ya quedó listo.
                 </p>
                 <label className="block">
                   <span className="text-[11px] font-bold uppercase text-slate-500">
@@ -251,24 +251,13 @@ export function BodegaPieceMaquinadoControls(props: Props) {
                 <button
                   type="button"
                   disabled={props.busy}
-                  className={`${btn} w-full ${maquinadoUi.btnArmado}`}
-                  onClick={() => void props.onFinishMaquinado('armado')}
-                >
-                  Fin → Armado
-                </button>
-                <p className="-mt-1 text-[11px] leading-relaxed text-slate-500">
-                  La pieza pasa a la cola de <strong>ensamble</strong> en taller.
-                </p>
-                <button
-                  type="button"
-                  disabled={props.busy}
                   className={`${btn} w-full ${maquinadoUi.btnDetallado}`}
                   onClick={() => void props.onFinishMaquinado('detallado')}
                 >
                   Fin → Detallado
                 </button>
                 <p className="-mt-1 text-[11px] leading-relaxed text-slate-500">
-                  Salta armado: va <strong>directo a detallado</strong>.
+                  De aquí va a <strong>detallado</strong>. El armado del proyecto es el paso siguiente.
                 </p>
               </div>
             )}

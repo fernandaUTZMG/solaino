@@ -22,20 +22,57 @@ import {
 } from '../../lib/bodegaPostPerfiladoProgramming'
 import {
   pieceLaneForModule,
+  piecesForCncModule,
   piecesPendingInCncModule,
   programmerCncModulesWithPieces,
 } from '../../lib/bodegaProgrammerFlow'
 import { BodegaPieceProgrammingControls } from './BodegaPieceProgrammingControls.tsx'
+import { BodegaPieceProgrammingFileDownload } from './BodegaPieceProgrammingFileDownload.tsx'
 import { BodegaPieceProgrammingBatchControls } from './BodegaPieceProgrammingBatchControls.tsx'
 import { progSeccionForModule, progTituloForModule, progWorkspacePalette } from './bodegaProgramacionUi.ts'
+import type { ProjectDesignVersionRow } from '../../lib/designVersionsRepo'
+import { downloadDesignFileForPiece } from '../../lib/bodegaPieceDesignDownload'
 
 type CncModule = 'programacion' | 'torno'
+
+function FinishedProgrammingFiles(props: { pieces: BodegaProjectPieceRow[] }) {
+  if (props.pieces.length === 0) return null
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <p className="text-[13px] font-bold text-slate-900">Programas subidos</p>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-slate-600">
+          Quedan en este proyecto para descargarlos después. No vuelven a la cola de programación.
+        </p>
+      </div>
+      <ul className="max-h-[min(60vh,480px)] divide-y divide-slate-100 overflow-y-auto">
+        {props.pieces.map((p) => (
+          <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="font-bold text-slate-900">{p.label}</p>
+              <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500" title={p.programming_file_name ?? ''}>
+                {p.programming_file_name}
+              </p>
+            </div>
+            <BodegaPieceProgrammingFileDownload
+              storagePath={p.programming_file_storage_path!}
+              fileName={p.programming_file_name!}
+              className="inline-flex min-h-[36px] shrink-0 items-center rounded-lg border border-programacion-300 bg-white px-3 py-1.5 text-[12px] font-bold text-programacion-900 hover:bg-programacion-50"
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 type Props = {
   role: AppRole
   projectId: string
   projectFolio: string
   pieces: BodegaProjectPieceRow[]
+  /** Diseño de este proyecto. La descarga de cada pieza sale solo de aquí. */
+  designVersion: ProjectDesignVersionRow | null
   designZipPaths?: string[]
   activeModule: CncModule
   onModuleChange: (m: CncModule) => void
@@ -63,6 +100,7 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
   const [pieceFilter, setPieceFilter] = useState('')
   const finishFileInputRef = useRef<HTMLInputElement>(null)
   const [finishTargetId, setFinishTargetId] = useState<string | null>(null)
+  const [downloadId, setDownloadId] = useState<string | null>(null)
 
   const modulesWithPieces = useMemo(() => programmerCncModulesWithPieces(props.pieces), [props.pieces])
   const showModuleTabs = spacious && modulesWithPieces.length > 1
@@ -70,6 +108,14 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
     () => piecesPendingInCncModule(props.pieces, props.activeModule),
     [props.pieces, props.activeModule],
   )
+  const finishedProgramFiles = useMemo(() => {
+    const pendingIds = new Set(modulePieces.map((p) => p.id))
+    return piecesForCncModule(props.pieces, props.activeModule).filter(
+      (p) =>
+        !pendingIds.has(p.id) &&
+        Boolean(p.programming_file_storage_path && p.programming_file_name),
+    )
+  }, [props.pieces, props.activeModule, modulePieces])
   const lane = pieceLaneForModule(props.activeModule)
   const moduleLabel = props.activeModule === 'programacion' ? 'CNC' : 'Torno'
 
@@ -190,6 +236,27 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
 
   function clearBulkSelection() {
     setBulkSelectedIds([])
+  }
+
+  async function onDownloadPiece(p: BodegaProjectPieceRow) {
+    if (!canWork || downloadId) return
+    if (!props.designVersion) {
+      setErr('Este proyecto no tiene archivo de diseño para descargar la pieza.')
+      return
+    }
+    setDownloadId(p.id)
+    setErr(null)
+    try {
+      await downloadDesignFileForPiece({
+        designVersion: props.designVersion,
+        pieceLabel: p.label,
+        sourcePath: p.source_path,
+      })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se descargó la pieza')
+    } finally {
+      setDownloadId(null)
+    }
   }
 
   async function onProgStart(p: BodegaProjectPieceRow) {
@@ -378,14 +445,19 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
         />
 
         {modulePieces.length === 0 ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-[14px] text-emerald-950">
-            <p className="font-bold">Programación de {moduleLabel} lista</p>
-            <p className="mt-1 text-[13px] leading-relaxed text-emerald-900/90">
-              No quedan piezas pendientes aquí. Las que terminaste con archivo ya salieron a{' '}
-              <strong>maquinado</strong> (o a perfilado si así las cerraste).
-            </p>
-          </div>
+          <>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-[14px] text-emerald-950">
+              <p className="font-bold">Programación de {moduleLabel} lista</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-emerald-900/90">
+                No quedan piezas pendientes aquí. Las que terminaste con archivo ya salieron a{' '}
+                <strong>maquinado</strong> (o a perfilado si así las cerraste). Los programas siguen abajo para
+                descargarlos.
+              </p>
+            </div>
+            <FinishedProgrammingFiles pieces={finishedProgramFiles} />
+          </>
         ) : (
+          <div className="space-y-4">
           <div className={[spacious ? 'grid gap-6 lg:grid-cols-[minmax(220px,320px)_1fr]' : 'space-y-4'].join(' ')}>
             <div>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -499,9 +571,9 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                                   : 'Pendiente — pulsa Inicio'}
                           </p>
                         </button>
-                        {canWork && !finished ? (
+                        {canWork ? (
                           <div className="flex shrink-0 flex-col justify-center gap-1 py-2 pr-2">
-                            {!pieceActive ? (
+                            {!finished && !pieceActive ? (
                               <button
                                 type="button"
                                 disabled={busy}
@@ -514,7 +586,8 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                               >
                                 Inicio
                               </button>
-                            ) : (
+                            ) : null}
+                            {!finished && pieceActive ? (
                               <button
                                 type="button"
                                 disabled={busy}
@@ -526,7 +599,19 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                               >
                                 Fin
                               </button>
-                            )}
+                            ) : null}
+                            <button
+                              type="button"
+                              disabled={downloadId != null || !props.designVersion}
+                              title={`Descargar ${p.label}.x_t`}
+                              className="min-h-[28px] rounded-lg border border-programacion-300 bg-white px-2 py-1 text-[10px] font-bold text-programacion-900 hover:bg-programacion-50 disabled:opacity-50"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void onDownloadPiece(p)
+                              }}
+                            >
+                              {downloadId === p.id ? '…' : 'Descargar'}
+                            </button>
                           </div>
                         ) : null}
                       </div>
@@ -581,6 +666,21 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                 {selectedPiece.source_path ? (
                   <p className="mt-1 font-mono text-[12px] text-slate-500">{selectedPiece.source_path}</p>
                 ) : null}
+                {canWork ? (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      disabled={downloadId != null || !props.designVersion}
+                      className="min-h-[40px] rounded-lg border border-programacion-300 bg-white px-4 py-2 text-[13px] font-bold text-programacion-900 shadow-sm hover:bg-programacion-50 disabled:opacity-50"
+                      onClick={() => void onDownloadPiece(selectedPiece)}
+                    >
+                      {downloadId === selectedPiece.id ? 'Descargando…' : 'Descargar esta pieza'}
+                    </button>
+                    <p className="mt-1 text-[12px] text-slate-500">
+                      Ensamble .x_t de este proyecto, guardado con el nombre de esta pieza. No trae piezas de otro proyecto.
+                    </p>
+                  </div>
+                ) : null}
                 <p className="mt-2 text-[13px] text-slate-600">
                   Acabado: <span className="font-semibold">{selectedPiece.finish_spec ?? '—'}</span>
                 </p>
@@ -615,6 +715,8 @@ export function BodegaProgrammerCncWorkspace(props: Props) {
                 </div>
               </div>
             ) : null}
+          </div>
+          <FinishedProgrammingFiles pieces={finishedProgramFiles} />
           </div>
         )}
       </div>

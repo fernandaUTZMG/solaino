@@ -1,4 +1,5 @@
 import type { BodegaPieceIntervalRow } from './bodegaPieceIntervalsRepo'
+import type { BodegaWorkIntervalRow } from './bodegaWorkIntervalsRepo'
 import { pieceDesignApproved } from './bodegaDesignPieceReview'
 import { programmingEligiblePieces } from './bodegaProgrammerFlow'
 import {
@@ -39,6 +40,7 @@ export type WeeklyPlanStageProgress = Record<WeeklyPlanStageId, number>
 
 const DISENO_COMPLETE_STATUSES = new Set([
   'terminado',
+  'en_foto',
   'revision_programacion',
   'en_programacion',
   'diseno_aprobado',
@@ -162,11 +164,16 @@ export function computeProjectWeeklyPlanActual(args: {
   intervals: BodegaPieceIntervalRow[]
   photos: ProjectPiecePhotoRow[]
   routesConfirmed: boolean
+  projectWorkIntervals?: BodegaWorkIntervalRow[]
 }): WeeklyPlanStageProgress {
   const { projectStatus, pieces, intervals, photos, routesConfirmed } = args
 
   if (isWeeklyPlanProjectTerminado(projectStatus)) {
     return { diseno: 100, programacion: 100, maquinado: 100, armado: 100 }
+  }
+
+  if (projectStatus === 'en_foto') {
+    return { diseno: 0, programacion: 0, maquinado: 0, armado: 0 }
   }
 
   const diseno = computeDisenoWeeklyActualPct(projectStatus, pieces)
@@ -190,11 +197,24 @@ export function computeProjectWeeklyPlanActual(args: {
   }
 
   const n = workPieces.length
+  const programacion = Math.round(progSum / n)
+  const maquinadoHecho = weeklyMaquinadoActualPct(workPieces, intervals, routesConfirmed)
+  // Maquinado no puede ir adelante de programación. El % de lo ya maquinado
+  // solo se muestra cuando programación está en 100; si todavía falta, se queda
+  // en ese mismo avance (o más bajo, si la máquina va todavía más atrás).
+  const maquinado = programacion >= 100 ? maquinadoHecho : Math.min(maquinadoHecho, programacion)
+  const armadoCalculado = Math.round(armSum / n)
+  const huboTiempoArmado =
+    intervals.some((row) => row.lane === 'armado') ||
+    workPieces.some((piece) => piece.armado_completed_at != null) ||
+    (args.projectWorkIntervals ?? []).some((row) => row.lane === 'armado')
+  const anterioresEnCien = diseno >= 100 && programacion >= 100 && maquinado >= 100
+  const armado = !huboTiempoArmado && !anterioresEnCien ? 0 : armadoCalculado
   return {
     diseno,
-    programacion: Math.round(progSum / n),
-    maquinado: weeklyMaquinadoActualPct(workPieces, intervals, routesConfirmed),
-    armado: Math.round(armSum / n),
+    programacion,
+    maquinado,
+    armado,
   }
 }
 
@@ -262,10 +282,10 @@ export const WEEKLY_PLAN_ACTUAL_HELP: readonly { stage: WeeklyPlanStageId; text:
   },
   {
     stage: 'maquinado',
-    text: 'Solo piezas que requieren maquinado CNC (archivo adjunto en CNC/Torno): % con maquinado terminado. Si ninguna aplica, refleja el avance de tiempos/taller de esas piezas.',
+    text: 'Cuando programación ya está en 100%, muestra el % de piezas CNC con maquinado terminado. Si programación sigue abajo de 100, maquinado no puede pasar de ese mismo porcentaje.',
   },
   {
     stage: 'armado',
-    text: 'Promedio por pieza: 34% detallado + 33% armado + 33% fotos de cierre, según lo registrado en el sistema.',
+    text: 'Si todavía no hay tiempo de armado y diseño, programación o maquinado no están en 100%, queda en 0%. Cuando ya hay tiempo de armado, o lo anterior ya está en 100%, promedia 34% detallado + 33% armado + 33% fotos.',
   },
 ]

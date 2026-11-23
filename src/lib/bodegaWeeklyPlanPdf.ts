@@ -1,13 +1,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { weeklyPlanPrioridadDisplay } from './bodegaProjectPrioridad'
+import { otherWorkshopPlanNote } from './bodegaExternalProvider'
 import { formatWeekRangeEs } from './bodegaWeekCalendar'
-import {
-  canvasToPngDataUrl,
-  renderWeeklyPlanMetaVsRealChart,
-  renderWeeklyPlanStagesChart,
-  renderWeeklyPlanSummaryChart,
-} from './bodegaWeeklyPlanExportCharts'
 import {
   downloadBlob,
   formatPlanDateLongEs,
@@ -29,22 +23,40 @@ const PAGE_H = 210
 
 type JsPdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } }
 
-function itemTableBody(items: BodegaWeeklyPlanItemEnriched[]): string[][] {
-  return items.map((it) => [
-    weeklyPlanPrioridadDisplay(it.prioridadNivel),
-    (it.cliente || '—').toUpperCase(),
-    (it.requisitor || '—').toUpperCase(),
-    it.po_numero || '—',
-    formatPlanDateLongEs(it.po_fecha),
-    it.proyecto_nombre.toUpperCase(),
-    `${it.actual.diseno}%`,
-    `${it.actual.programacion}%`,
-    `${it.actual.maquinado}%`,
-    `${it.actual.armado}%`,
-    formatPlanDateLongEs(it.fecha_entrega),
-    (it.status_label || '—').toUpperCase(),
-    it.factura || '',
-  ])
+function itemTableBody(items: BodegaWeeklyPlanItemEnriched[]) {
+  return items.map((it, index) => {
+    const otherShop = it.externalShop ? otherWorkshopPlanNote(it.proveedor) : null
+    const stages = otherShop
+      ? [
+          {
+            content: `${otherShop.place} ${otherShop.close}`,
+            colSpan: 4,
+            styles: {
+              halign: 'left' as const,
+              valign: 'middle' as const,
+              fontStyle: 'bold' as const,
+              fontSize: 6.5,
+              textColor: [146, 64, 14] as [number, number, number],
+            },
+          },
+        ]
+      : [`${it.actual.diseno}%`, `${it.actual.programacion}%`, `${it.actual.maquinado}%`, `${it.actual.armado}%`]
+    return [
+      String(index + 1),
+      (it.cliente || '—').toUpperCase(),
+      (it.requisitor || '—').toUpperCase(),
+      it.po_numero || '—',
+      formatPlanDateLongEs(it.po_fecha),
+      otherShop
+        ? `${it.proyecto_nombre.toUpperCase()}\n${otherShop.place} ${otherShop.close}`
+        : it.proyecto_nombre.toUpperCase(),
+      (it.proveedor || '—').toUpperCase(),
+      ...stages,
+      formatPlanDateLongEs(it.fecha_entrega),
+      (it.status_label || '—').toUpperCase(),
+      it.factura || '',
+    ]
+  })
 }
 
 function drawPdfHeader(doc: jsPDF, entry: WeeklyPlanExportWeek, logoDataUrl: string | null): number {
@@ -71,7 +83,7 @@ function drawPdfHeader(doc: jsPDF, entry: WeeklyPlanExportWeek, logoDataUrl: str
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
   doc.setTextColor(64, 64, 64)
-  doc.text(`Plan de trabajo bodega  ·  ${formatWeekRangeEs(entry.weekStart)}`, PAGE_W / 2, 21, {
+  doc.text(formatWeekRangeEs(entry.weekStart), PAGE_W / 2, 21, {
     align: 'center',
   })
   doc.setFontSize(8)
@@ -82,12 +94,12 @@ function drawPdfHeader(doc: jsPDF, entry: WeeklyPlanExportWeek, logoDataUrl: str
 }
 
 function drawKpiStrip(doc: jsPDF, y: number, entry: WeeklyPlanExportWeek): number {
-  const s = entry.bundle.weekSummary
+  const summary = entry.bundle.weekSummary
   const boxes: { label: string; value: string }[] = [
-    { label: 'Meta semanal', value: `${s.plannedOverallPct}%` },
-    { label: 'Avance real', value: `${s.actualOverallPct}%` },
-    { label: 'Con atraso', value: String(s.itemsBehind) },
-    { label: 'Finalizados', value: String(s.itemsCompleted) },
+    { label: 'Meta semanal', value: `${summary.plannedOverallPct}%` },
+    { label: 'Avance real', value: `${summary.actualOverallPct}%` },
+    { label: 'Con atraso', value: String(summary.itemsBehind) },
+    { label: 'Finalizados', value: String(summary.itemsCompleted) },
   ]
   const gap = 4
   const boxW = (PAGE_W - MARGIN * 2 - gap * 3) / 4
@@ -109,36 +121,10 @@ function drawKpiStrip(doc: jsPDF, y: number, entry: WeeklyPlanExportWeek): numbe
   return y + 18
 }
 
-function drawProgressBarInCell(
-  doc: jsPDF,
-  cell: { x: number; y: number; width: number; height: number },
-  pct: number,
-): void {
-  const pad = 1.2
-  const barH = Math.max(2, cell.height - pad * 2)
-  const barY = cell.y + pad
-  const barX = cell.x + pad
-  const barW = cell.width - pad * 2
-  doc.setFillColor(242, 242, 242)
-  doc.rect(barX, barY, barW, barH, 'F')
-  const fillW = (pct / 100) * barW
-  if (fillW > 0) {
-    doc.setFillColor(255, 192, 0)
-    doc.rect(barX, barY, fillW, barH, 'F')
-  }
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7)
-  doc.setTextColor(0, 0, 0)
-  doc.text(`${pct}%`, cell.x + cell.width / 2, cell.y + cell.height / 2 + 1, {
-    align: 'center',
-    baseline: 'middle',
-  })
-}
-
 function drawDataTable(doc: jsPDF, startY: number, entry: WeeklyPlanExportWeek): number {
   autoTable(doc, {
     startY,
-    head: [HEADER_LABELS as unknown as string[]],
+    head: [HEADER_LABELS.map((label, index) => (index === 0 ? '#' : label))],
     body: itemTableBody(entry.bundle.items),
     theme: 'grid',
     styles: {
@@ -165,14 +151,15 @@ function drawDataTable(doc: jsPDF, startY: number, entry: WeeklyPlanExportWeek):
       2: { cellWidth: 22 },
       3: { cellWidth: 16 },
       4: { cellWidth: 28, fontSize: 6 },
-      5: { cellWidth: 38, halign: 'left' },
-      6: { cellWidth: 14, halign: 'center', minCellHeight: 8 },
-      7: { cellWidth: 14, halign: 'center', minCellHeight: 8 },
-      8: { cellWidth: 14, halign: 'center', minCellHeight: 8 },
-      9: { cellWidth: 14, halign: 'center', minCellHeight: 8 },
-      10: { cellWidth: 28, fontSize: 6 },
-      11: { cellWidth: 16, halign: 'center' },
-      12: { cellWidth: 14, fillColor: COLORS.facturaYellowPdf },
+      5: { cellWidth: 34, halign: 'left' },
+      6: { cellWidth: 22, halign: 'left' },
+      7: { cellWidth: 13, halign: 'center', minCellHeight: 8 },
+      8: { cellWidth: 13, halign: 'center', minCellHeight: 8 },
+      9: { cellWidth: 13, halign: 'center', minCellHeight: 8 },
+      10: { cellWidth: 13, halign: 'center', minCellHeight: 8 },
+      11: { cellWidth: 24, fontSize: 6 },
+      12: { cellWidth: 15, halign: 'center' },
+      13: { cellWidth: 14, fillColor: COLORS.facturaYellowPdf },
     },
     margin: { left: MARGIN, right: MARGIN },
     didParseCell: (data) => {
@@ -182,31 +169,83 @@ function drawDataTable(doc: jsPDF, startY: number, entry: WeeklyPlanExportWeek):
       if (it.projectTerminado) {
         data.cell.styles.fillColor = COLORS.doneGreenPdf
       }
-      if (data.column.index === 12) {
+      if (data.column.index === 13) {
         data.cell.styles.fillColor = COLORS.facturaYellowPdf
       }
-      if (data.column.index === 11 && /entregado|terminado/i.test(String(it.status_label))) {
+      if (data.column.index === 12 && /entregado|terminado/i.test(String(it.status_label))) {
         data.cell.styles.textColor = COLORS.statusRedPdf
         data.cell.styles.fontStyle = 'bold'
       }
-      if (data.column.index >= 6 && data.column.index <= 9) {
+      if (data.column.index >= 7 && data.column.index <= 10 && !it.externalShop) {
         data.cell.text = []
       }
     },
     didDrawCell: (data) => {
       if (data.section !== 'body') return
-      if (data.column.index < 6 || data.column.index > 9) return
+      if (data.column.index < 7 || data.column.index > 10) return
       const it = entry.bundle.items[data.row.index]
-      if (!it) return
-      const pcts = [it.actual.diseno, it.actual.programacion, it.actual.maquinado, it.actual.armado]
-      const pct = pcts[data.column.index - 6] ?? 0
-      drawProgressBarInCell(doc, data.cell, pct)
+      if (!it || it.externalShop) return
+      const stages = ['diseno', 'programacion', 'maquinado', 'armado'] as const
+      const stage = stages[data.column.index - 7]
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7)
+      const pct = it.actual[stage]
+      const behind = !it.projectTerminado && it.lagStages.includes(stage)
+      doc.setTextColor(behind ? 159 : 6, behind ? 18 : 95, behind ? 57 : 70)
+      doc.text(`${pct}%`, data.cell.x + data.cell.width / 2, data.cell.y + data.cell.height / 2 + 1, {
+        align: 'center',
+        baseline: 'middle',
+      })
     },
   })
   return (doc as JsPdfWithTable).lastAutoTable?.finalY ?? startY
 }
 
-function drawChartsPage(doc: jsPDF, entry: WeeklyPlanExportWeek, logoDataUrl: string | null): void {
+function drawWeekSection(
+  doc: jsPDF,
+  y: number,
+  title: string,
+  rows: string[][],
+  fill: [number, number, number],
+  ink: [number, number, number],
+): number {
+  if (y > PAGE_H - 40) {
+    doc.addPage('a4', 'l')
+    y = MARGIN
+  }
+  autoTable(doc, {
+    startY: y,
+    head: [
+      [{ content: title, colSpan: 2, styles: { fillColor: fill, textColor: ink, halign: 'left', fontSize: 11 } }],
+      [
+        { content: 'Proyecto', styles: { fillColor: fill, textColor: ink } },
+        { content: 'Detalle', styles: { fillColor: fill, textColor: ink } },
+      ],
+    ],
+    body: rows.length > 0 ? rows : [['—', 'Nada en esta semana.']],
+    margin: { left: MARGIN, right: MARGIN, bottom: 14 },
+    theme: 'grid',
+    styles: {
+      font: 'helvetica',
+      fontSize: 8,
+      cellPadding: 2.2,
+      valign: 'middle',
+      textColor: [15, 23, 42],
+      lineColor: [203, 213, 225],
+      lineWidth: 0.2,
+      overflow: 'linebreak',
+    },
+    headStyles: { fontStyle: 'bold', fontSize: 8 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 108, fontStyle: 'bold' },
+      1: { cellWidth: 169 },
+    },
+  })
+  return ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 6
+}
+
+function drawWeekBriefPage(doc: jsPDF, entry: WeeklyPlanExportWeek, logoDataUrl: string | null): void {
   doc.addPage('a4', 'l')
   let y = MARGIN
   if (logoDataUrl) {
@@ -216,24 +255,47 @@ function drawChartsPage(doc: jsPDF, entry: WeeklyPlanExportWeek, logoDataUrl: st
       /* ignore */
     }
   }
+  doc.setFillColor(189, 215, 238)
+  doc.roundedRect(MARGIN + 48, y, PAGE_W - MARGIN * 2 - 48, 16, 2, 2, 'F')
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
-  doc.setTextColor(0, 0, 0)
-  doc.text(`Gráficas — ${formatWeekRangeEs(entry.weekStart)}`, PAGE_W / 2, y + 10, { align: 'center' })
+  doc.setTextColor(15, 23, 42)
+  doc.text(`Esta semana  ·  ${formatWeekRangeEs(entry.weekStart)}`, PAGE_W / 2 + 16, y + 7, { align: 'center' })
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(71, 85, 105)
+  doc.text('Meta 100%. Solo lo que pasó entre el lunes y el viernes.', PAGE_W / 2 + 16, y + 12.5, { align: 'center' })
   y += 22
 
-  const w = (PAGE_W - MARGIN * 2 - 6) / 2
-  const h = 72
-  try {
-    const s1 = canvasToPngDataUrl(renderWeeklyPlanSummaryChart(entry.bundle, 800, 340))
-    const s2 = canvasToPngDataUrl(renderWeeklyPlanStagesChart(entry.bundle, 800, 340))
-    const s3 = canvasToPngDataUrl(renderWeeklyPlanMetaVsRealChart(entry.bundle, 800, 340))
-    doc.addImage(s1, 'PNG', MARGIN, y, w, h)
-    doc.addImage(s2, 'PNG', MARGIN + w + 6, y, w, h)
-    doc.addImage(s3, 'PNG', MARGIN, y + h + 8, PAGE_W - MARGIN * 2, h + 12)
-  } catch {
-    doc.setFontSize(10)
-    doc.text('No se pudieron incrustar las gráficas.', MARGIN, y + 20)
+  const jobs = entry.bundle.weekFocus.jobs
+  const sections: Array<{ title: string; rows: string[][]; fill: [number, number, number]; ink: [number, number, number] }> = [
+    {
+      title: 'Se cumplió',
+      fill: [209, 250, 229],
+      ink: [6, 78, 59],
+      rows: jobs.flatMap((job) => job.done.map((line) => [job.name, line])),
+    },
+    {
+      title: 'Hizo falta',
+      fill: [254, 243, 199],
+      ink: [146, 64, 14],
+      rows: jobs.flatMap((job) => job.missing.map((line) => [job.name, line])),
+    },
+    {
+      title: 'En qué nos atrasamos',
+      fill: [255, 228, 230],
+      ink: [159, 18, 57],
+      rows: jobs.flatMap((job) => job.behind.map((line) => [job.name, line])),
+    },
+    {
+      title: 'En qué hay que trabajar',
+      fill: [224, 242, 254],
+      ink: [7, 89, 133],
+      rows: jobs.filter((job) => job.workOn.length > 0).map((job) => [job.name, job.workOn.join('  ·  ')]),
+    },
+  ]
+  for (const section of sections) {
+    y = drawWeekSection(doc, y, section.title, section.rows, section.fill, section.ink)
   }
 }
 
@@ -241,33 +303,8 @@ function addWeekToPdf(doc: jsPDF, entry: WeeklyPlanExportWeek, logo: string | nu
   if (!isFirst) doc.addPage('a4', 'l')
   let y = drawPdfHeader(doc, entry, logo)
   y = drawKpiStrip(doc, y, entry)
-  y = drawDataTable(doc, y + 2, entry)
-  if (y > PAGE_H - 40 || entry.bundle.items.length > 12) {
-    drawChartsPage(doc, entry, logo)
-  } else {
-    try {
-      const w = (PAGE_W - MARGIN * 2 - 6) / 2
-      const chartY = y + 6
-      doc.addImage(
-        canvasToPngDataUrl(renderWeeklyPlanSummaryChart(entry.bundle, 700, 280)),
-        'PNG',
-        MARGIN,
-        chartY,
-        w,
-        38,
-      )
-      doc.addImage(
-        canvasToPngDataUrl(renderWeeklyPlanStagesChart(entry.bundle, 700, 280)),
-        'PNG',
-        MARGIN + w + 6,
-        chartY,
-        w,
-        38,
-      )
-    } catch {
-      drawChartsPage(doc, entry, logo)
-    }
-  }
+  drawDataTable(doc, y + 2, entry)
+  drawWeekBriefPage(doc, entry, logo)
 }
 
 function addPdfFooters(doc: jsPDF): void {

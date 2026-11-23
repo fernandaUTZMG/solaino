@@ -293,7 +293,7 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
         <p className={maquinadoUi.headerBody}>
           Solo piezas <strong className="text-white">CNC</strong> programadas y cerradas sin perfilado. Por cada
           una: <strong className="text-white">Inicio</strong> → maquina → <strong className="text-white">Fin</strong>{' '}
-          hacia Armado o Detallado. Lo que va a perfilado no entra aquí.
+          hacia Detallado. El armado es después del detallado. Lo que va a perfilado no entra aquí.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <span className={maquinadoUi.statChip}>{cncRows.length} en cola</span>
@@ -324,7 +324,7 @@ export function BodegaOperatorMaquinadoWorkspace(props: Props) {
             </li>
             <li>Aparece aquí → revisa PDF y programa → <strong>Inicio</strong>.</li>
             <li>
-              Al acabar: <strong>Fin → Armado</strong> o <strong>Fin → Detallado</strong>.
+              Al acabar: <strong>Fin → Detallado</strong>. El armado del proyecto es después del detallado.
             </li>
           </ol>
         </div>

@@ -2,7 +2,7 @@
 export const PLAN_EXPORT_TITLE = 'MAQUINADOS'
 export const PLAN_EXPORT_BRAND = 'SOLAINO · Soluciones Integrales'
 
-export const COL_COUNT = 13
+export const COL_COUNT = 14
 
 export const COLORS = {
   headerBlue: 'FFBDD7EE',
@@ -29,6 +29,7 @@ export const HEADER_LABELS = [
   'P.O.',
   'FECHA DE P.O.',
   'PROYECTO',
+  'PROVEEDOR',
   'DISEÑO',
   'PROGRAMACION',
   'MAQUINADO',
@@ -39,7 +40,7 @@ export const HEADER_LABELS = [
 ] as const
 
 /** Anchos de columna (caracteres Excel). */
-export const COLUMN_WIDTHS = [9, 14, 20, 16, 28, 42, 11, 14, 12, 11, 28, 14, 14]
+export const COLUMN_WIDTHS = [9, 14, 20, 16, 28, 42, 22, 11, 14, 12, 11, 28, 14, 14]
 
 import type { Borders } from 'exceljs'
 

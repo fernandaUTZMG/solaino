@@ -114,8 +114,8 @@ function pieceStages(piece: BodegaProjectPieceRow, hasPhoto: boolean): Stage[] {
   const stages: Stage[] = [
     { id: 'perfilado', label: 'Perfilado', done: perfiladoDone, hint: perfiladoHint },
     { id: 'maquinado', label: 'Maquinado', done: maquinadoDone, hint: maquinadoHint },
-    { id: 'armado', label: 'Armado', done: Boolean(piece.armado_completed_at) },
     { id: 'detallado', label: 'Detallado', done: Boolean(piece.detallado_completed_at) },
+    { id: 'armado', label: 'Armado', done: Boolean(piece.armado_completed_at) },
   ]
   // Tras detallado (o si ya es elegible), la foto de cierre es la etapa que falta.
   if (pieceEligibleForProjectPhotos(piece)) {

@@ -1,11 +1,10 @@
-import { useMemo, useRef, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import type { AppRole } from '../../lib/roles'
 import { canManageBodegaLikeAdmin, canUploadBodegaMachine } from '../../lib/roles'
 import type { CncModuleKind } from '../../lib/machineVersionsRepo'
 import { programmingBusinessSeconds } from '../../lib/bodegaProjectOrdenTimes'
 import type { BodegaPieceIntervalRow } from '../../lib/bodegaPieceIntervalsRepo'
 import type { BodegaWorkIntervalRow } from '../../lib/bodegaWorkIntervalsRepo'
-import { nowDate } from '../../lib/serverNow'
 import { BodegaProgramacionGuide } from './BodegaProgramacionGuide.tsx'
 import { BodegaProgramacionTabPanel } from './BodegaProgramacionTabPanel.tsx'
 import { BodegaLiveClock } from './BodegaLiveClock.tsx'
@@ -52,26 +51,21 @@ export function BodegaProgramacionWorkspace(props: Props) {
   const intervals = props.workIntervals ?? []
   const pieceIntervals = props.pieceIntervals ?? []
   const programmingDone = Boolean(props.allProgrammingFinished)
-  const clockOpen =
-    intervals.some((r) => (r.lane === 'cnc_programacion' || r.lane === 'cnc_torno') && !r.ended_at) ||
-    pieceIntervals.some((r) => (r.lane === 'programacion_cnc' || r.lane === 'programacion_torno') && !r.ended_at)
+  const clockOpen = pieceIntervals.some(
+    (r) => (r.lane === 'programacion_cnc' || r.lane === 'programacion_torno') && !r.ended_at,
+  )
   const clockLive = clockOpen && !programmingDone
   const clockNow = useLiveClockTick(clockLive)
-  const freezeAtRef = useRef<string | null>(null)
-  if (programmingDone) {
-    if (freezeAtRef.current == null) freezeAtRef.current = nowDate().toISOString()
-  } else {
-    freezeAtRef.current = null
-  }
-  const displayIntervals = useMemo(() => {
-    if (!programmingDone || freezeAtRef.current == null) return intervals
-    const ended = freezeAtRef.current
-    return intervals.map((r) =>
-      (r.lane === 'cnc_programacion' || r.lane === 'cnc_torno') && !r.ended_at ? { ...r, ended_at: ended } : r,
-    )
-  }, [intervals, programmingDone])
-  const clockSec = programmingBusinessSeconds(displayIntervals, pieceIntervals, clockNow)
+  const clockSec = programmingBusinessSeconds(intervals, pieceIntervals, clockNow)
   const clockMins = clockSec / 60
+
+  if (props.projectStatus === 'en_foto') {
+    return (
+      <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-[14px] leading-relaxed text-amber-950">
+        Este proyecto no se hace en el taller. Pasó a la foto. Programación no recibe estas piezas.
+      </section>
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -90,20 +84,20 @@ export function BodegaProgramacionWorkspace(props: Props) {
         subtitle={
           programmingDone
             ? 'Programación CNC terminada: el reloj se detuvo al cerrar todas las piezas con archivo.'
-            : 'Cuenta solo lunes a viernes, de 8:00 a 17:30. Cada pieza CNC tiene su propio Inicio y Fin.'
+            : 'Cuenta solo lunes a viernes, de 8:00 a 17:30. Inicio en la pieza. Fin al subir el archivo programado.'
         }
       >
         <BodegaLiveClock
           seconds={clockSec}
           active={clockLive}
           label="Programación"
-          idleLabel={programmingDone ? 'Programación terminada' : 'Se inicia al entrar al proyecto'}
+          idleLabel={programmingDone ? 'Programación terminada' : 'Pulsa Inicio en la pieza'}
           hint={
             programmingDone
               ? 'Todas las piezas CNC ya tienen archivo. Siguiente: maquinado (con Inicio/Fin) o perfilado (sin tiempo).'
               : clockOpen
-                ? 'Reloj de oficina activo (lun–vie 8:00–17:30). Abajo, inicia y termina el tiempo de cada pieza.'
-                : undefined
+                ? 'Reloj activo desde Inicio. Se detiene al subir el archivo programado.'
+                : 'No empieza al entrar al proyecto. Pulsa Inicio en la pieza que vas a programar.'
           }
           tone="navy"
           businessMinutes={clockMins > 0 ? clockMins : undefined}
@@ -174,7 +168,7 @@ export function BodegaProgramacionWorkspace(props: Props) {
         <StepBlock
           n={4}
           title="Programar piezas"
-          subtitle="Inicia el tiempo de oficina CNC, sube el archivo y cierra. Contratiempos van en comentarios."
+          subtitle="Pulsa Inicio, programa la pieza y sube el archivo: eso marca el Fin. Contratiempos van en comentarios."
         >
           {props.programmingPanel}
         </StepBlock>

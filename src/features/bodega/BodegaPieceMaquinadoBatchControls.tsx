@@ -94,7 +94,7 @@ export function BodegaPieceMaquinadoBatchControls(props: Props) {
         Mismo maquinado — {props.pieces.length} pieza{props.pieces.length === 1 ? '' : 's'}
       </p>
       <p className={['mt-1 leading-snug text-slate-600', compact ? 'text-[10px]' : 'text-[11px]'].join(' ')}>
-        Inicia el tiempo en lote y termina a Armado o Detallado.
+        Inicia el tiempo en lote. Al terminar, las piezas pasan a detallado.
       </p>
 
       {notice ? (
@@ -137,14 +137,6 @@ export function BodegaPieceMaquinadoBatchControls(props: Props) {
           />
         </label>
         <div className="mt-2 flex flex-col gap-2">
-          <button
-            type="button"
-            disabled={disabled || finishEligible.length === 0}
-            className={`${btn} w-full text-white disabled:opacity-50 ${maquinadoUi.btnArmado}`}
-            onClick={() => void onBatchFinish('armado')}
-          >
-            Fin masivo → Armado
-          </button>
           <button
             type="button"
             disabled={disabled || finishEligible.length === 0}

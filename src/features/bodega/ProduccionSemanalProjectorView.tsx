@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { formatProduccionSemanalTitleRange, PRODUCCION_SEMANAL_WEEKDAYS } from '../../lib/bodegaProduccionSemanalFormat'
 import type { ProduccionSemanalDayRow } from '../../lib/bodegaProduccionSemanalRepo'
+import { produccionDayScore, produccionLaneTasks, produccionWeekScore, summarizeProduccionWeek, type ProduccionDayScore, type ProduccionProjectLive, type ProduccionTaskLane } from '../../lib/bodegaProduccionSemanalTasks'
+import { produccionCausaDurationLabel, produccionCausaElapsedSeconds, type ProduccionCausaEvento } from '../../lib/bodegaProduccionCausasRepo'
 import { ProduccionSemanalTaskList } from './ProduccionSemanalTaskList.tsx'
 
 const HEADER_BG = '#BDD7EE'
@@ -13,6 +15,8 @@ type Props = {
     maquinado_label: string
   }
   days: ProduccionSemanalDayRow[]
+  liveByProject: Map<string, ProduccionProjectLive>
+  causaEventos?: ProduccionCausaEvento[]
   lastUpdated: Date | null
   refreshing: boolean
   onMinimize: () => void
@@ -47,12 +51,14 @@ export function ProduccionSemanalProjectorView(props: Props) {
     void document.documentElement.requestFullscreen?.().catch(() => {})
   }
 
-  const columns = [
-    { key: 'disenadora' as const, label: props.labels.disenadora_label },
-    { key: 'programacion' as const, label: props.labels.programacion_label },
-    { key: 'maquinado' as const, label: props.labels.maquinado_label },
-    { key: 'comentarios' as const, label: 'Comentarios' },
+  const columns: Array<{ key: 'disenadora' | 'programacion' | 'maquinado' | 'armado'; label: string; lane: ProduccionTaskLane }> = [
+    { key: 'disenadora', label: props.labels.disenadora_label, lane: 'disenadora' },
+    { key: 'programacion', label: props.labels.programacion_label, lane: 'programacion' },
+    { key: 'maquinado', label: props.labels.maquinado_label, lane: 'maquinado' },
+    { key: 'armado', label: 'Armado', lane: 'armado' },
   ]
+  const summary = summarizeProduccionWeek(props.days)
+  const week = produccionWeekScore(props.days, props.liveByProject)
 
   return (
     <div
@@ -132,6 +138,15 @@ export function ProduccionSemanalProjectorView(props: Props) {
                   {col.label}
                 </th>
               ))}
+              <th className="border border-black px-2 py-2.5 text-center text-[clamp(9px,1vw,13px)] font-bold text-black" style={{ backgroundColor: HEADER_BG }}>
+                Meta diaria
+              </th>
+              <th className="border border-black px-2 py-2.5 text-center text-[clamp(9px,1vw,13px)] font-bold text-black" style={{ backgroundColor: HEADER_BG }}>
+                Avance real diario
+              </th>
+              <th className="border border-black px-2 py-2.5 text-center text-[clamp(9px,1vw,13px)] font-bold text-black" style={{ backgroundColor: HEADER_BG }}>
+                Comentarios
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -142,9 +157,50 @@ export function ProduccionSemanalProjectorView(props: Props) {
                 </td>
                 {columns.map((col) => (
                   <td key={col.key} className="border border-black px-2 py-1.5 align-top">
-                    <ProduccionSemanalTaskList text={day[col.key]} variant="projector" />
+                    <ProduccionSemanalTaskList
+                      tasks={produccionLaneTasks(day, col.lane)}
+                      lane={col.lane}
+                      liveByProject={props.liveByProject}
+                      variant="projector"
+                    />
                   </td>
                 ))}
+                {(() => {
+                  const score = produccionDayScore(day, props.liveByProject)
+                  return (
+                    <>
+                      <td className="border border-black px-2 py-2 align-top text-[11px] leading-snug">
+                        {score.goals.length === 0
+                          ? '—'
+                          : score.goals.map((goal) => (
+                              <p key={`${goal.lane}-${goal.text}`}>
+                                <span className="font-bold">{goal.lane}: </span>
+                                {goal.text}
+                              </p>
+                            ))}
+                      </td>
+                      <td className="border border-black px-2 py-2 align-top text-[11px] leading-snug">
+                        <ProjectorReal score={score} />
+                      </td>
+                    </>
+                  )
+                })()}
+                <td className="border border-black px-2 py-1.5 align-top">
+                  <ProduccionSemanalTaskList text={day.comentarios} variant="projector" />
+                  {(props.causaEventos ?? [])
+                    .filter((event) => event.day_id === day.id)
+                    .map((event) => (
+                      <p key={event.id} className="mt-1 text-[11px] font-semibold leading-snug text-black">
+                        {event.nombre} · {produccionCausaDurationLabel(produccionCausaElapsedSeconds(event, Date.now()))}
+                        {event.ended_at == null ? ' (en curso)' : ''}
+                      </p>
+                    ))}
+                  {produccionDayScore(day, props.liveByProject).gaps.map((gap) => (
+                    <p key={gap} className="mt-1 text-[11px] font-semibold leading-snug text-black">
+                      {gap}
+                    </p>
+                  ))}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -155,10 +211,41 @@ export function ProduccionSemanalProjectorView(props: Props) {
         <p>
           Actualización automática cada 30 s · Última: <strong>{updatedLabel}</strong>
           {props.refreshing ? <span className="ml-2 text-sky-700">Refrescando…</span> : null}
+          {summary.tareas > 0 ? (
+            <span className="ml-2">
+              {week.meta != null ? `· Meta semanal ${week.meta}% ` : ''}
+              {week.real != null ? `· Avance real semanal ${week.real}% ` : ''}
+              · {summary.conProyecto} con proyecto · {summary.marcadas} con avance a mano · {summary.sinTocar} sin avance a mano
+            </span>
+          ) : null}
           <span className="ml-2 text-slate-500">· Esc = minimizar</span>
         </p>
         <p className="text-slate-500">Solaino — Soluciones integrales</p>
       </footer>
+    </div>
+  )
+}
+
+function ProjectorReal(props: { score: ProduccionDayScore }) {
+  const { score } = props
+  if (score.goals.length === 0) return <>—</>
+  return (
+    <div>
+      {score.real != null ? <p className="font-bold">{score.real}%</p> : null}
+      <p className="mt-1 font-bold">Cumplido</p>
+      {score.done.length === 0 ? <p>Nada todavía</p> : score.done.map((line) => (
+        <p key={`ok-${line.lane}-${line.text}-${line.detail}`}>
+          <span className="font-bold">{line.lane}: </span>
+          {line.text} · {line.detail}
+        </p>
+      ))}
+      <p className="mt-1 font-bold">Falta</p>
+      {score.missing.length === 0 ? <p>Nada pendiente</p> : score.missing.map((line) => (
+        <p key={`no-${line.lane}-${line.text}-${line.detail}`}>
+          <span className="font-bold">{line.lane}: </span>
+          {line.text} · {line.detail}
+        </p>
+      ))}
     </div>
   )
 }

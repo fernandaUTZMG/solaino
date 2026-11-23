@@ -81,14 +81,29 @@ export function buildXtAssemblyGroups(designZipPaths: string[]): XtAssemblyGroup
   return groups
 }
 
+/** Piezas cuyo nombre está en el .x_t de este proyecto. Las de otro ensamble no entran. */
+export function piecesBelongingToDesignPaths<T extends { source_path: string | null; label: string }>(
+  pieces: T[],
+  paths: string[],
+): T[] {
+  if (paths.length === 0) return []
+  return pieces.filter((piece) => {
+    const src = piece.source_path || piece.label
+    return paths.some((path) => designZipEntriesMatch(src, path))
+  })
+}
+
 export function pieceForZipPath(
   pieces: BodegaProjectPieceRow[],
   zipPath: string,
 ): BodegaProjectPieceRow | undefined {
   const norm = normPath(zipPath)
-  const exact = pieces.find((p) => p.source_path && normPath(p.source_path) === norm)
-  if (exact) return exact
-  return pieces.find((p) => p.source_path && designZipEntriesMatch(p.source_path, norm))
+  const matches = pieces.filter((p) => {
+    const src = p.source_path || p.label
+    if (!src) return false
+    return normPath(src) === norm || designZipEntriesMatch(src, norm)
+  })
+  return matches.find((p) => p.programmer_bucket != null) ?? matches[0]
 }
 
 export function isPdfPiece(p: BodegaProjectPieceRow): boolean {

@@ -1,10 +1,14 @@
-import type { BodegaProjectPieceRow } from './bodegaPiecesRepo'
+import {
+  pieceEligibleForArmado,
+  pieceEligibleForDetallado,
+  type BodegaProjectPieceRow,
+} from './bodegaPiecesRepo'
 import type { ProjectPiecePhotoRow } from './piecePhotosRepo'
 
 /**
  * Piezas listas para foto de cierre:
- * - Torno / perfilado / accesorios: diseño las dirige sin proceso CNC → aparecen al asignarlas.
- * - CNC: tras terminar detallado en taller.
+ * - Torno / perfilado / accesorios: aparecen al asignarlas en diseño.
+ * - CNC: cuando ya no está en la cola de taller (perfilado, detallado o armado).
  */
 export function pieceSkipsManufacturingForPhotos(
   p: Pick<BodegaProjectPieceRow, 'programmer_bucket'>,
@@ -16,9 +20,22 @@ export function pieceSkipsManufacturingForPhotos(
   )
 }
 
+function pieceWaitingInPerfiladoQueue(p: BodegaProjectPieceRow): boolean {
+  if (p.perfilado_completed_at != null) return false
+  return p.programming_exit_kind === 'a_perfilado' && p.programming_finished_at != null
+}
+
+/** La pieza sigue en Perfilado, Detallado o Armado. Ahí sí bloquea la foto. */
+export function pieceWaitingInTaller(p: BodegaProjectPieceRow): boolean {
+  if (pieceSkipsManufacturingForPhotos(p)) return false
+  return pieceWaitingInPerfiladoQueue(p) || pieceEligibleForDetallado(p) || pieceEligibleForArmado(p)
+}
+
 export function pieceEligibleForProjectPhotos(p: BodegaProjectPieceRow): boolean {
   if (pieceSkipsManufacturingForPhotos(p)) return true
-  return p.detallado_completed_at != null
+  if (p.detallado_completed_at != null) return true
+  if (p.programmer_bucket !== 'cnc' || p.programming_finished_at == null) return false
+  return !pieceWaitingInTaller(p)
 }
 
 export function photosForPiece(photos: ProjectPiecePhotoRow[], pieceId: string): ProjectPiecePhotoRow[] {

@@ -2,7 +2,12 @@ import {
   createSignedUrlForDesignZip,
   type ProjectDesignVersionRow,
 } from './designVersionsRepo'
-import { designZipKitKey, parseVersionScopedDesignPath, versionScopedDesignPath } from './designZipScope'
+import {
+  designZipKitKey,
+  parseVersionScopedDesignPath,
+  versionScopedDesignPath,
+  xtAssemblyFamilyKey,
+} from './designZipScope'
 import { listZipEntryPathsFromBlob } from './zipDesignPackage'
 import { isXtDesignVersion } from './xtDesignManifest'
 
@@ -55,11 +60,16 @@ type KitVersionEntry = {
   path: string
 }
 
-/** Una versión por kit (la más reciente si hay v1 y v5 del mismo ZIP). */
+function versionKitKey(v: ProjectDesignVersionRow): string {
+  if (isXtDesignVersion(v)) return xtAssemblyFamilyKey(v.zip_filename)
+  return designZipKitKey(v.zip_filename)
+}
+
+/** Una versión por kit (la más reciente). Un .x_t y su REV02 cuentan como el mismo ensamble. */
 function latestApprovedVersionPerKit(versions: ProjectDesignVersionRow[]): ProjectDesignVersionRow[] {
   const byKit = new Map<string, ProjectDesignVersionRow>()
   for (const v of [...versions].sort((a, b) => a.version - b.version)) {
-    byKit.set(designZipKitKey(v.zip_filename), v)
+    byKit.set(versionKitKey(v), v)
   }
   return [...byKit.values()].sort((a, b) => a.version - b.version)
 }

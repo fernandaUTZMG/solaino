@@ -3,10 +3,11 @@ import type { AppRole } from '../../lib/roles'
 import { canAccessTallerOperadorNav } from '../../lib/roles'
 import type { BodegaProjectPieceWithProject } from '../../lib/bodegaPiecesRepo'
 import {
-  fetchPiecesQueueArmado,
+  fetchPiecesForMassArmado,
   fetchPiecesQueueDetallado,
   fetchPiecesQueuePerfilado,
 } from '../../lib/bodegaPiecesRepo'
+import { BodegaProjectArmadoPanel } from './BodegaProjectArmadoPanel.tsx'
 import { BodegaOperatorPerfiladoWorkspace } from './BodegaOperatorPerfiladoWorkspace.tsx'
 import { BodegaOperatorTallerStageWorkspace } from './BodegaOperatorTallerStageWorkspace.tsx'
 import { TALLER_STAGE_TAB_LABELS, TALLER_STAGE_TAB_ORDER, type TallerStageTabId } from './bodegaTallerTabs.ts'
@@ -45,7 +46,7 @@ export function BodegaOperatorQueuesPage(props: { role: AppRole }) {
     try {
       let list: BodegaProjectPieceWithProject[] = []
       if (tab === 'perfilado') list = await fetchPiecesQueuePerfilado()
-      else if (tab === 'armado') list = await fetchPiecesQueueArmado()
+      else if (tab === 'armado') list = await fetchPiecesForMassArmado()
       else list = await fetchPiecesQueueDetallado()
       setRows(list)
     } catch (e) {
@@ -74,10 +75,8 @@ export function BodegaOperatorQueuesPage(props: { role: AppRole }) {
       <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm ring-1 ring-slate-900/[0.04] sm:p-6">
         <h1 className="text-xl font-bold text-slate-900">Taller</h1>
         <p className="mt-2 max-w-3xl text-[14px] leading-relaxed text-slate-600">
-          Etapas físicas después de programación o perfilado: <strong>Perfilado</strong>,{' '}
-          <strong>Detallado</strong> y <strong>Armado</strong>. También puedes usar la pestaña{' '}
-          <strong>Taller</strong> dentro de cada proyecto. El CNC/Torno en máquina está en{' '}
-          <strong>Maquinado</strong>.
+          <strong>Perfilado</strong> y <strong>Detallado</strong> siguen por pieza. <strong>Armado</strong> junta
+          todas las piezas de cada proyecto, toma un solo tiempo y al terminar pasa a la foto del armado.
         </p>
 
         <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Etapas de taller">
@@ -110,9 +109,48 @@ export function BodegaOperatorQueuesPage(props: { role: AppRole }) {
         <BodegaOperatorPerfiladoWorkspace rows={rows} loading={loading} onReload={load} />
       ) : tab === 'detallado' ? (
         <BodegaOperatorTallerStageWorkspace stage="detallado" rows={rows} loading={loading} onReload={load} />
+      ) : loading ? (
+        <p className="text-[13px] text-slate-600">Cargando armados…</p>
       ) : (
-        <BodegaOperatorTallerStageWorkspace stage="armado" rows={rows} loading={loading} onReload={load} />
+        <MassArmadoList rows={rows} onReload={load} />
       )}
+    </div>
+  )
+}
+
+function MassArmadoList(props: {
+  rows: BodegaProjectPieceWithProject[]
+  onReload: () => Promise<void>
+}) {
+  const groups = new Map<string, BodegaProjectPieceWithProject[]>()
+  for (const row of props.rows) {
+    const list = groups.get(row.project_id) ?? []
+    list.push(row)
+    groups.set(row.project_id, list)
+  }
+  const pending = [...groups.values()].filter((pieces) => pieces.some((p) => p.armado_completed_at == null))
+  if (pending.length === 0) {
+    return (
+      <p className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-[13px] text-slate-600">
+        No hay proyectos pendientes de armado.
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-8">
+      {pending.map((pieces) => {
+        const first = pieces[0]!
+        return (
+          <BodegaProjectArmadoPanel
+            key={first.project_id}
+            projectId={first.project_id}
+            projectFolio={first.bodega_projects?.folio ?? first.project_id}
+            projectName={first.bodega_projects?.nombre}
+            pieces={pieces}
+            onReload={props.onReload}
+          />
+        )
+      })}
     </div>
   )
 }

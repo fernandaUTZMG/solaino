@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppRole } from '../../lib/roles'
 import { downloadBodegaReportesPdf } from '../../lib/bodegaReportesPdf'
 import type { BodegaOcReportGroup, BodegaProjectReportRow, BodegaReportesBundle } from '../../lib/bodegaReportesRepo'
-import { fetchBodegaReportesBundle } from '../../lib/bodegaReportesRepo'
+import { fetchBodegaReportesBundle, projectCierreNote } from '../../lib/bodegaReportesRepo'
 import { bodegaProjectStatusLabelEs } from '../../lib/bodegaProjectsRepo'
-import { formatWeekCell, quePasoEstaSemana, tallerWeekMinutes } from '../../lib/bodegaReportWeek'
+import { formatWeekCell, formatWeekMinutes, quePasoEstaSemana, tallerWeekMinutes } from '../../lib/bodegaReportWeek'
 import {
   OrdenProjectTimeGrid,
   OrdenTimeLegend,
@@ -56,6 +56,8 @@ function formatDateTimeEs(iso: string): string {
 function ProjectReportCard(props: { row: BodegaProjectReportRow; weekNote: string; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(props.defaultOpen ?? false)
   const p = props.row.project
+  const cierre = projectCierreNote(props.row.activityNotes)
+  const historial = props.row.activityNotes.filter((n) => n.id !== cierre?.id)
   return (
     <article className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-1 ring-slate-900/[0.03]">
       <button
@@ -94,6 +96,15 @@ function ProjectReportCard(props: { row: BodegaProjectReportRow; weekNote: strin
           <span className="text-[13px] font-black tabular-nums text-emerald-800">{p.avance_pct}%</span>
         </div>
       </button>
+      {cierre ? (
+        <div className="border-t border-amber-100 bg-amber-50/80 px-4 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">Nota de cierre</p>
+          <p className="mt-0.5 text-[10px] font-semibold text-amber-800">
+            {formatDateTimeEs(cierre.created_at)} · {cierre.authorLabel}
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-amber-950">{cierre.comment}</p>
+        </div>
+      ) : null}
       {open ? (
         <div className="space-y-4 border-t border-slate-100 px-4 py-4">
           <div className="grid gap-2 text-[12px] text-slate-600 sm:grid-cols-2">
@@ -127,11 +138,11 @@ function ProjectReportCard(props: { row: BodegaProjectReportRow; weekNote: strin
               </p>
             </div>
           ) : null}
-          {props.row.activityNotes.length > 0 ? (
+          {historial.length > 0 ? (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Historial y notas</p>
               <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">
-                {props.row.activityNotes.map((n) => (
+                {historial.map((n) => (
                   <li key={n.id} className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
                     <p className="text-[10px] font-semibold text-slate-500">
                       {formatDateTimeEs(n.created_at)} · {n.typeLabel} · {n.authorLabel}
@@ -141,7 +152,7 @@ function ProjectReportCard(props: { row: BodegaProjectReportRow; weekNote: strin
                 ))}
               </ul>
             </div>
-          ) : (
+          ) : cierre ? null : (
             <p className="text-[12px] text-slate-500">Sin notas en el historial de actividad.</p>
           )}
         </div>
@@ -176,10 +187,10 @@ function OcReportCard(props: { group: BodegaOcReportGroup; weekNote: string }) {
         <div>
           <p className="text-[10px] font-bold uppercase text-slate-600">Esta semana</p>
           <p className="mt-1 text-[12px] text-slate-700">
-            Diseño {formatWeekCell(g.weekTimesSum.disenoMin, g.projects.every((p) => p.advance.disenoCumplido))} · programación{' '}
-            {formatWeekCell(g.weekTimesSum.programacionMin, g.projects.every((p) => p.advance.programacionCumplido))} · maquinado{' '}
-            {formatWeekCell(g.weekTimesSum.maquinadoMin, g.projects.every((p) => p.advance.maquinadoCumplido))} · taller{' '}
-            {formatWeekCell(tallerWeekMinutes(g.weekTimesSum), g.projects.every((p) => p.advance.tallerCumplido))}
+            Diseño {formatWeekMinutes(g.weekShopTimes.disenoMin)} · programación{' '}
+            {formatWeekMinutes(g.weekShopTimes.programacionMin)} · maquinado{' '}
+            {formatWeekMinutes(g.weekShopTimes.maquinadoMin)} · taller{' '}
+            {formatWeekMinutes(tallerWeekMinutes(g.weekShopTimes))}
           </p>
           <p className="mt-3 text-[10px] font-bold uppercase text-slate-600">Acumulado de la orden</p>
           <div className="mt-2">
@@ -218,6 +229,7 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [pdfBusy, setPdfBusy] = useState(false)
   const [weekNote, setWeekNote] = useState('')
+  const [weekNoteDraft, setWeekNoteDraft] = useState('')
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -239,7 +251,9 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
   useEffect(() => {
     if (!bundle) return
     const key = `solaino-reporte-semana:${bundle.week.label}`
-    setWeekNote(localStorage.getItem(key) ?? '')
+    const saved = localStorage.getItem(key) ?? ''
+    setWeekNote(saved)
+    setWeekNoteDraft(saved)
   }, [bundle])
 
   const filteredProjects = useMemo(() => {
@@ -262,6 +276,19 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
       return blob.includes(s)
     })
   }, [bundle, q])
+
+  function addWeekNote() {
+    if (!bundle) return
+    const next = weekNoteDraft.trim()
+    const key = `solaino-reporte-semana:${bundle.week.label}`
+    if (!next) {
+      localStorage.removeItem(key)
+      setWeekNote('')
+      return
+    }
+    localStorage.setItem(key, next)
+    setWeekNote(next)
+  }
 
   async function onExportPdf() {
     if (!bundle || pdfBusy) return
@@ -299,9 +326,8 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
             Reporte semanal{bundle ? ` · ${bundle.week.label}` : ''}
           </h1>
           <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-blue-100/95">
-            Reporte del viernes: tiempo hábil de esta semana y el motivo cuando un proyecto no avanzó. El horario es
-            lunes a viernes, 8:00 a 17:30. Anota ausencias en la nota de la semana; el PDF la muestra arriba de las
-            órdenes.
+            El PDF va por orden de compra y, dentro, por proyecto: tiempo de diseño, tiempo de programación, tiempo de armado, maquinado
+            CNC de cada pieza, las demás piezas por destino, y dónde va el proyecto. Anota ausencias en la nota de la semana.
           </p>
           {bundle ? (
             <p className="mt-2 text-[11px] text-blue-200/80">
@@ -358,22 +384,35 @@ export function BodegaReportesPage(_props: { role: AppRole }) {
       </div>
 
       {bundle ? (
-        <label className="block rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-amber-950">
-            Nota de la semana {bundle.week.label}
-          </span>
-          <textarea
-            value={weekNote}
-            onChange={(e) => {
-              const next = e.target.value
-              setWeekNote(next)
-              localStorage.setItem(`solaino-reporte-semana:${bundle.week.label}`, next)
-            }}
-            rows={2}
-            placeholder="Ejemplo: el programador no asiste jueves ni viernes; regresa el martes."
-            className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-[14px] outline-none focus:ring-2 focus:ring-amber-300"
-          />
-        </label>
+        <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4 shadow-sm">
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-rose-800">
+              Nota de la semana {bundle.week.label}
+            </span>
+            <textarea
+              value={weekNoteDraft}
+              onChange={(e) => setWeekNoteDraft(e.target.value)}
+              rows={2}
+              placeholder="Ejemplo: el programador no asiste jueves ni viernes; regresa el martes."
+              className="mt-2 w-full rounded-xl border border-rose-300 bg-white px-3 py-2 text-[14px] text-rose-950 outline-none focus:ring-2 focus:ring-rose-300"
+            />
+          </label>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[12px] text-rose-800">
+              {weekNote.trim()
+                ? 'Nota agregada. Sale en el PDF en rojo.'
+                : 'Escribe la nota y pulsa Agregar para que quede en el reporte.'}
+            </p>
+            <button
+              type="button"
+              disabled={!weekNoteDraft.trim() || weekNoteDraft.trim() === weekNote.trim()}
+              className="min-h-[40px] rounded-xl bg-rose-700 px-4 py-2 text-[13px] font-bold text-white shadow-sm hover:bg-rose-800 disabled:opacity-50"
+              onClick={addWeekNote}
+            >
+              Agregar
+            </button>
+          </div>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">

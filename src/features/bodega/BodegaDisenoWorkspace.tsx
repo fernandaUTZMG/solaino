@@ -18,6 +18,10 @@ type Props = {
   onUploadDesign: (submit: DesignEntregaSubmit) => void
   onDownload: (v: ProjectDesignVersionRow) => void
   formatDateTime: (d: Date) => string
+  canManageEntregas?: boolean
+  entregaActionBusy?: boolean
+  onWithdrawEntrega?: (v: ProjectDesignVersionRow) => void
+  onChooseEntrega?: (v: ProjectDesignVersionRow) => void
   destinosComplete?: boolean
   showPlanosStep?: boolean
   clockPanel: ReactNode
@@ -74,6 +78,10 @@ export function BodegaDisenoWorkspace(props: Props) {
         onUploadDesign={props.onUploadDesign}
         onDownload={props.onDownload}
         formatDateTime={props.formatDateTime}
+        canManageEntregas={props.canManageEntregas}
+        entregaActionBusy={props.entregaActionBusy}
+        onWithdrawEntrega={props.onWithdrawEntrega}
+        onChooseEntrega={props.onChooseEntrega}
       />
 
       {showSupervisor ? (

@@ -1,3 +1,14 @@
+/**
+ * Mismo ensamble .x_t aunque el archivo traiga REV02 u otra revisión.
+ * `Ensamblaje SOL26067.x_t` y `Ensamblaje SOL26067 REV02.x_t` son una sola familia.
+ */
+export function xtAssemblyFamilyKey(zipFilename: string): string {
+  const base = zipFilename.replace(/\.(x_t|xt)$/i, '').trim().toLowerCase()
+  const noRev = base.replace(/[\s._-]*rev(?:ision)?[\s._-]*\d+\s*$/i, '').trim()
+  const slug = (noRev || base).replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  return `xt:${slug.slice(0, 48) || 'ensamble'}`
+}
+
 /** Clave de «kit» a partir del nombre del ZIP (agrupa v1/v5 del mismo producto). */
 export function designZipKitKey(zipFilename: string): string {
   const base = zipFilename.replace(/\.zip$/i, '').trim().toLowerCase()

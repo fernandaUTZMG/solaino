@@ -8,9 +8,10 @@ export type MainNavView =
   | 'operador_taller'
   | 'solicitudes'
   | 'archivos'
-  | 'prioridades'
+  | 'prioridades' 
   | 'plan_trabajo'
   | 'produccion_semanal'
+  | 'facturas_credito'
   | 'reportes'
   | 'nube'
   | 'historico'
@@ -257,7 +258,7 @@ export const BODEGA_GROUP_VIEWS: MainNavView[] = [
   'prioridades',
 ]
 
-export const PRODUCCION_GROUP_VIEWS: MainNavView[] = ['plan_trabajo', 'produccion_semanal']
+export const PRODUCCION_GROUP_VIEWS: MainNavView[] = ['plan_trabajo', 'produccion_semanal', 'facturas_credito']
 
 export function isInventarioGroupView(view: MainNavView): boolean {
   return INVENTARIO_GROUP_VIEWS.includes(view)

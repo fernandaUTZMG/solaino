@@ -10,6 +10,7 @@ export type BodegaProjectStatus =
   | 'diseno_aprobado'
   | 'en_programacion'
   | 'revision_programacion'
+  | 'en_foto'
   | 'terminado'
 
 export type BodegaProjectListRow = {
@@ -40,6 +41,7 @@ export function bodegaProjectStatusLabelEs(s: BodegaProjectStatus): string {
   if (s === 'diseno_aprobado') return 'Diseño aprobado'
   if (s === 'en_programacion') return 'En programación'
   if (s === 'revision_programacion') return 'Revisión programación'
+  if (s === 'en_foto') return 'En foto'
   return 'Terminado'
 }
 

@@ -1,12 +1,16 @@
-import type { BodegaWorkIntervalLane } from './bodegaWorkIntervalsRepo'
+import { fetchWorkIntervals, type BodegaWorkIntervalLane } from './bodegaWorkIntervalsRepo'
 import { getSupabase } from './supabaseClient'
 import { piecesPendingInCncModule } from './bodegaProgrammerFlow'
 import type { BodegaProjectPieceRow } from './bodegaPiecesRepo'
 
 export const BODEGA_DESIGN_FOLDER_CONFIRM_PATCH = 'supabase/patch_bodega_design_folder_confirm.sql'
 
-/** Cierra el intervalo abierto del carril indicado. */
-export async function closeWorkInterval(projectId: string, lane: BodegaWorkIntervalLane): Promise<void> {
+/** Cierra el intervalo abierto del carril indicado. `meta` se mezcla con el que ya tenga la fila. */
+export async function closeWorkInterval(
+  projectId: string,
+  lane: BodegaWorkIntervalLane,
+  meta?: Record<string, unknown> | null,
+): Promise<void> {
   const sb = getSupabase()
   const endedAt = new Date().toISOString()
   // Nombre histórico del parámetro en Postgres: p_end
@@ -14,6 +18,7 @@ export async function closeWorkInterval(projectId: string, lane: BodegaWorkInter
     p_project_id: projectId,
     p_lane: lane,
     p_end: endedAt,
+    ...(meta ? { p_meta: meta } : {}),
   })
   if (!error) return
 
@@ -37,7 +42,7 @@ export async function closeWorkInterval(projectId: string, lane: BodegaWorkInter
   // Fallback: cerrar filas abiertas directo (por si el RPC falla o no existe)
   const { error: updErr } = await sb
     .from('bodega_project_work_intervals')
-    .update({ ended_at: endedAt })
+    .update(meta ? { ended_at: endedAt, meta } : { ended_at: endedAt })
     .eq('project_id', projectId)
     .eq('lane', lane)
     .is('ended_at', null)
@@ -48,6 +53,17 @@ export async function closeWorkInterval(projectId: string, lane: BodegaWorkInter
     }
     throw updErr
   }
+}
+
+/** Marca el último tramo cerrado de armado como pausa o como fin. */
+export async function tagLatestArmadoStop(projectId: string, stop: 'pause' | 'fin'): Promise<void> {
+  const sb = getSupabase()
+  const rows = await fetchWorkIntervals(projectId)
+  const latest = rows.filter((row) => row.lane === 'armado' && row.ended_at).at(-1)
+  if (!latest) return
+  const meta = { ...(latest.meta ?? {}), armado_stop: stop }
+  const { error } = await sb.from('bodega_project_work_intervals').update({ meta }).eq('id', latest.id)
+  if (error) throw error
 }
 
 export async function closeProgrammingDeliveryClock(projectId: string): Promise<void> {

@@ -118,6 +118,11 @@ export function canAccessProduccionNav(role: AppRole): boolean {
   return canAccessBodega(role)
 }
 
+/** Facturas a crédito: solo encargado y administrador. */
+export function canAccessFacturasCreditoNav(role: AppRole): boolean {
+  return role === 'admin' || role === 'encargado'
+}
+
 /** @deprecated Usar canAccessProduccionNav */
 export function canAccessBodegaPlanTrabajoNav(role: AppRole): boolean {
   return canAccessProduccionNav(role)

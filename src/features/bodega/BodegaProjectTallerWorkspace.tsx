@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { BodegaProjectPieceWithProject } from '../../lib/bodegaPiecesRepo'
 import {
-  fetchProjectPiecesQueueArmado,
+  fetchProjectPieces,
   fetchProjectPiecesQueueDetallado,
   fetchProjectPiecesQueuePerfilado,
+  type BodegaProjectPieceRow,
 } from '../../lib/bodegaPiecesRepo'
+import { BodegaProjectArmadoPanel } from './BodegaProjectArmadoPanel.tsx'
 import { BodegaOperatorPerfiladoWorkspace } from './BodegaOperatorPerfiladoWorkspace.tsx'
 import { BodegaOperatorTallerStageWorkspace } from './BodegaOperatorTallerStageWorkspace.tsx'
 import { TALLER_STAGE_TAB_LABELS, TALLER_STAGE_TAB_ORDER, type TallerStageTabId } from './bodegaTallerTabs.ts'
@@ -13,21 +15,28 @@ import { TALLER_STAGE_TAB_LABELS, TALLER_STAGE_TAB_ORDER, type TallerStageTabId 
 export function BodegaProjectTallerWorkspace(props: {
   projectId: string
   projectFolio: string
+  onActivity?: () => Promise<void>
 }) {
   const [tab, setTab] = useState<TallerStageTabId>('perfilado')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<BodegaProjectPieceWithProject[]>([])
+  const [armadoPieces, setArmadoPieces] = useState<BodegaProjectPieceRow[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      let list: BodegaProjectPieceWithProject[] = []
-      if (tab === 'perfilado') list = await fetchProjectPiecesQueuePerfilado(props.projectId)
-      else if (tab === 'armado') list = await fetchProjectPiecesQueueArmado(props.projectId)
-      else list = await fetchProjectPiecesQueueDetallado(props.projectId)
-      setRows(list)
+      if (tab === 'armado') {
+        setArmadoPieces(await fetchProjectPieces(props.projectId))
+        setRows([])
+      } else {
+        const list =
+          tab === 'perfilado'
+            ? await fetchProjectPiecesQueuePerfilado(props.projectId)
+            : await fetchProjectPiecesQueueDetallado(props.projectId)
+        setRows(list)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron cargar las piezas de taller')
       setRows([])
@@ -44,7 +53,8 @@ export function BodegaProjectTallerWorkspace(props: {
     <div className="space-y-5">
       <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-relaxed text-slate-700">
         Piezas del proyecto <strong className="font-mono text-section-navy">{props.projectFolio}</strong> en taller.
-        Elige la etapa: <strong>Perfilado</strong>, <strong>Detallado</strong> o <strong>Armado</strong>.
+        <strong>Perfilado</strong> y <strong>Detallado</strong> siguen por pieza. <strong>Armado</strong> junta todas
+        las de este proyecto y toma un solo tiempo.
       </p>
 
       <div
@@ -80,7 +90,16 @@ export function BodegaProjectTallerWorkspace(props: {
       ) : tab === 'detallado' ? (
         <BodegaOperatorTallerStageWorkspace stage="detallado" rows={rows} loading={loading} onReload={load} />
       ) : (
-        <BodegaOperatorTallerStageWorkspace stage="armado" rows={rows} loading={loading} onReload={load} />
+        <BodegaProjectArmadoPanel
+          projectId={props.projectId}
+          projectFolio={props.projectFolio}
+          pieces={armadoPieces}
+          loading={loading}
+          onReload={async () => {
+            await load()
+            await props.onActivity?.()
+          }}
+        />
       )}
     </div>
   )

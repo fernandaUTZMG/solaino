@@ -1,4 +1,9 @@
 import { getSupabase } from './supabaseClient'
+import {
+  produccionTasksToJson,
+  reconcileProduccionTasks,
+  type ProduccionSemanalTask,
+} from './bodegaProduccionSemanalTasks'
 
 export const BODEGA_PRODUCCION_SEMANAL_PATCH = 'supabase/patch_bodega_produccion_semanal.sql'
 
@@ -17,7 +22,47 @@ export type ProduccionSemanalDayRow = {
   disenadora: string
   programacion: string
   maquinado: string
+  armado: string
   comentarios: string
+  disenadora_tareas: ProduccionSemanalTask[]
+  programacion_tareas: ProduccionSemanalTask[]
+  maquinado_tareas: ProduccionSemanalTask[]
+  armado_tareas: ProduccionSemanalTask[]
+}
+
+const DAY_SELECT =
+  'id, plan_id, day_index, disenadora, programacion, maquinado, armado, comentarios, disenadora_tareas, programacion_tareas, maquinado_tareas, armado_tareas'
+const DAY_SELECT_NO_ARMADO =
+  'id, plan_id, day_index, disenadora, programacion, maquinado, comentarios, disenadora_tareas, programacion_tareas, maquinado_tareas'
+const DAY_SELECT_PLAIN = 'id, plan_id, day_index, disenadora, programacion, maquinado, comentarios'
+
+function mapDay(row: Record<string, unknown>): ProduccionSemanalDayRow {
+  const disenadora = String(row.disenadora ?? '')
+  const programacion = String(row.programacion ?? '')
+  const maquinado = String(row.maquinado ?? '')
+  const armado = String(row.armado ?? '')
+  return {
+    id: String(row.id ?? ''),
+    plan_id: String(row.plan_id ?? ''),
+    day_index: Number(row.day_index ?? 0),
+    disenadora,
+    programacion,
+    maquinado,
+    armado,
+    comentarios: String(row.comentarios ?? ''),
+    disenadora_tareas: reconcileProduccionTasks(disenadora, row.disenadora_tareas),
+    programacion_tareas: reconcileProduccionTasks(programacion, row.programacion_tareas),
+    maquinado_tareas: reconcileProduccionTasks(maquinado, row.maquinado_tareas),
+    armado_tareas: reconcileProduccionTasks(armado, row.armado_tareas),
+  }
+}
+
+function missingTaskColumn(message: string): boolean {
+  return /disenadora_tareas|programacion_tareas|maquinado_tareas/i.test(message) && /does not exist|schema cache|could not find/i.test(message)
+}
+
+function missingArmadoColumn(message: string): boolean {
+  return /\barmado\b|armado_tareas/i.test(message) && /does not exist|schema cache|could not find/i.test(message)
 }
 
 export type ProduccionSemanalBundle = {
@@ -42,6 +87,21 @@ function sortDays(days: ProduccionSemanalDayRow[]): ProduccionSemanalDayRow[] {
   return [...days].sort((a, b) => a.day_index - b.day_index)
 }
 
+async function selectDays(planId: string): Promise<ProduccionSemanalDayRow[]> {
+  const sb = getSupabase()
+  const rich = await sb.from('bodega_produccion_semanal_dias').select(DAY_SELECT).eq('plan_id', planId)
+  const mid =
+    rich.error && missingArmadoColumn(rich.error.message)
+      ? await sb.from('bodega_produccion_semanal_dias').select(DAY_SELECT_NO_ARMADO).eq('plan_id', planId)
+      : rich
+  const res =
+    mid.error && missingTaskColumn(mid.error.message)
+      ? await sb.from('bodega_produccion_semanal_dias').select(DAY_SELECT_PLAIN).eq('plan_id', planId)
+      : mid
+  throwIfDbError(res.error, 'Cargar días del plan')
+  return sortDays(((res.data as Record<string, unknown>[] | null) ?? []).map(mapDay))
+}
+
 async function insertDefaultDays(planId: string): Promise<ProduccionSemanalDayRow[]> {
   const sb = getSupabase()
   const rows = [0, 1, 2, 3, 4].map((day_index) => ({
@@ -52,9 +112,9 @@ async function insertDefaultDays(planId: string): Promise<ProduccionSemanalDayRo
     maquinado: '',
     comentarios: '',
   }))
-  const { data, error } = await sb.from('bodega_produccion_semanal_dias').insert(rows).select('*')
+  const { error } = await sb.from('bodega_produccion_semanal_dias').insert(rows)
   throwIfDbError(error, 'Crear días del plan')
-  return sortDays((data as ProduccionSemanalDayRow[]) ?? [])
+  return selectDays(planId)
 }
 
 export async function fetchProduccionSemanalBundle(weekStart: string): Promise<ProduccionSemanalBundle | null> {
@@ -67,15 +127,9 @@ export async function fetchProduccionSemanalBundle(weekStart: string): Promise<P
   throwIfDbError(planErr, 'Cargar plan de producción')
   if (!plan) return null
 
-  const { data: days, error: daysErr } = await sb
-    .from('bodega_produccion_semanal_dias')
-    .select('id, plan_id, day_index, disenadora, programacion, maquinado, comentarios')
-    .eq('plan_id', (plan as ProduccionSemanalPlanRow).id)
-  throwIfDbError(daysErr, 'Cargar días del plan')
-
   return {
     plan: plan as ProduccionSemanalPlanRow,
-    days: sortDays((days as ProduccionSemanalDayRow[]) ?? []),
+    days: await selectDays((plan as ProduccionSemanalPlanRow).id),
   }
 }
 
@@ -105,11 +159,11 @@ export async function ensureProduccionSemanalBundle(weekStart: string): Promise<
       maquinado: '',
       comentarios: '',
     }))
-    const { data, error } = await sb.from('bodega_produccion_semanal_dias').insert(rows).select('*')
+    const { error } = await sb.from('bodega_produccion_semanal_dias').insert(rows)
     throwIfDbError(error, 'Completar días del plan')
     return {
       plan: existing.plan,
-      days: sortDays([...existing.days, ...((data as ProduccionSemanalDayRow[]) ?? [])]),
+      days: await selectDays(existing.plan.id),
     }
   }
 
@@ -143,21 +197,44 @@ export type ProduccionSemanalDayInput = {
   disenadora: string
   programacion: string
   maquinado: string
+  armado: string
   comentarios: string
+  disenadora_tareas: ProduccionSemanalTask[]
+  programacion_tareas: ProduccionSemanalTask[]
+  maquinado_tareas: ProduccionSemanalTask[]
+  armado_tareas: ProduccionSemanalTask[]
 }
 
 export async function updateProduccionSemanalDay(dayId: string, input: ProduccionSemanalDayInput): Promise<void> {
   const sb = getSupabase()
-  const { error } = await sb
-    .from('bodega_produccion_semanal_dias')
-    .update({
-      disenadora: input.disenadora,
-      programacion: input.programacion,
-      maquinado: input.maquinado,
-      comentarios: input.comentarios,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', dayId)
+  const payload = {
+    disenadora: input.disenadora,
+    programacion: input.programacion,
+    maquinado: input.maquinado,
+    armado: input.armado,
+    comentarios: input.comentarios,
+    disenadora_tareas: produccionTasksToJson(input.disenadora_tareas),
+    programacion_tareas: produccionTasksToJson(input.programacion_tareas),
+    maquinado_tareas: produccionTasksToJson(input.maquinado_tareas),
+    armado_tareas: produccionTasksToJson(input.armado_tareas),
+    updated_at: new Date().toISOString(),
+  }
+  let { error } = await sb.from('bodega_produccion_semanal_dias').update(payload).eq('id', dayId)
+  if (error && missingArmadoColumn(error.message)) {
+    const { armado: _armado, armado_tareas: _armadoTareas, ...withoutArmado } = payload
+    ;({ error } = await sb.from('bodega_produccion_semanal_dias').update(withoutArmado).eq('id', dayId))
+  }
+  if (error && missingTaskColumn(error.message)) {
+    const {
+      disenadora_tareas: _a,
+      programacion_tareas: _b,
+      maquinado_tareas: _c,
+      armado_tareas: _d,
+      armado: _e,
+      ...plain
+    } = payload
+    ;({ error } = await sb.from('bodega_produccion_semanal_dias').update(plain).eq('id', dayId))
+  }
   throwIfDbError(error, 'Guardar día del plan')
 }
 

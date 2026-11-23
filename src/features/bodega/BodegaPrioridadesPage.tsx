@@ -32,6 +32,7 @@ const STATUS_ES: Record<string, string> = {
   diseno_aprobado: 'Diseño aprobado',
   en_programacion: 'En programación',
   revision_programacion: 'Revisión prog.',
+  en_foto: 'En foto',
   terminado: 'Terminado',
 }
 

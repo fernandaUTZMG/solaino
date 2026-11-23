@@ -11,11 +11,28 @@ export type PendingDeliveryReviewItem = {
   createdAt: string
 }
 
-function folioFromJoin(row: unknown): string | null {
-  const rel = (row as { bodega_projects?: { folio?: string } | { folio?: string }[] | null }).bodega_projects
+type ProjectJoin = {
+  folio?: string | null
+  status?: string | null
+  project_finalized_at?: string | null
+}
+
+function projectFromJoin(row: unknown): ProjectJoin | null {
+  const rel = (row as { bodega_projects?: ProjectJoin | ProjectJoin[] | null }).bodega_projects
   if (!rel) return null
-  if (Array.isArray(rel)) return rel[0]?.folio ?? null
-  return rel.folio ?? null
+  return Array.isArray(rel) ? rel[0] ?? null : rel
+}
+
+function folioFromJoin(row: unknown): string | null {
+  return projectFromJoin(row)?.folio ?? null
+}
+
+/** Un proyecto ya cerrado no debe seguir en la campana de revisión. */
+function projectAlreadyClosed(row: unknown): boolean {
+  const project = projectFromJoin(row)
+  if (!project) return false
+  if (project.status === 'terminado') return true
+  return project.project_finalized_at != null && String(project.project_finalized_at).trim() !== ''
 }
 
 /** Entregas ZIP en «en revisión» que admin o supervisor deben aprobar o devolver. */
@@ -24,7 +41,7 @@ export async function fetchPendingDeliveryReviewsForSupervisors(): Promise<Pendi
   const usePkgCat = await projectDesignVersionsSupportsPackageCategory()
   const designBase = sb
     .from('project_design_versions')
-    .select('id, version, zip_filename, created_at, project_id, bodega_projects(folio)')
+    .select('id, version, zip_filename, created_at, project_id, bodega_projects(folio, status, project_finalized_at)')
     .eq('status', 'en_revision')
   const designQ = usePkgCat ? designBase.eq('package_category', 'entrega_diseno') : designBase
 
@@ -32,7 +49,7 @@ export async function fetchPendingDeliveryReviewsForSupervisors(): Promise<Pendi
     designQ.order('created_at', { ascending: false }).limit(50),
     sb
       .from('project_machine_versions')
-      .select('id, version, zip_filename, created_at, project_id, bodega_projects(folio)')
+      .select('id, version, zip_filename, created_at, project_id, bodega_projects(folio, status, project_finalized_at)')
       .eq('status', 'en_revision')
       .order('created_at', { ascending: false })
       .limit(50),
@@ -55,7 +72,10 @@ export async function fetchPendingDeliveryReviewsForSupervisors(): Promise<Pendi
     project_id: string
   }>
 
-  const designItems: PendingDeliveryReviewItem[] = designRows.map((r) => ({
+  const openDesignRows = designRows.filter((row) => !projectAlreadyClosed(row))
+  const openMachineRows = machineRows.filter((row) => !projectAlreadyClosed(row))
+
+  const designItems: PendingDeliveryReviewItem[] = openDesignRows.map((r) => ({
     kind: 'design' as const,
     versionId: r.id,
     projectId: r.project_id,
@@ -64,7 +84,7 @@ export async function fetchPendingDeliveryReviewsForSupervisors(): Promise<Pendi
     zipFilename: r.zip_filename,
     createdAt: r.created_at,
   }))
-  const machineItems: PendingDeliveryReviewItem[] = machineRows.map((r) => ({
+  const machineItems: PendingDeliveryReviewItem[] = openMachineRows.map((r) => ({
     kind: 'machine' as const,
     versionId: r.id,
     projectId: r.project_id,

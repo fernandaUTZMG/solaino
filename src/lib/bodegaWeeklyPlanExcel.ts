@@ -1,11 +1,10 @@
 import ExcelJS from 'exceljs'
+import { otherWorkshopPlanNote } from './bodegaExternalProvider'
 import { weeklyPlanPrioridadDisplay } from './bodegaProjectPrioridad'
 import { formatWeekRangeEs } from './bodegaWeekCalendar'
 import {
   canvasToPngArrayBuffer,
-  renderWeeklyPlanMetaVsRealChart,
-  renderWeeklyPlanStagesChart,
-  renderWeeklyPlanSummaryChart,
+  renderWeeklyPlanDetailChart,
 } from './bodegaWeeklyPlanExportCharts'
 import {
   downloadBlob,
@@ -27,7 +26,7 @@ import type { BodegaWeeklyPlanItemEnriched } from './bodegaWeeklyPlanRepo'
 
 const HEADER_ROW = 3
 const FIRST_DATA_ROW = 4
-const LAST_COL_LETTER = 'M'
+const LAST_COL_LETTER = 'N'
 
 function applyTitleBand(sheet: ExcelJS.Worksheet, weekLabel: string): void {
   sheet.mergeCells(`A1:${LAST_COL_LETTER}1`)
@@ -46,7 +45,7 @@ function applyTitleBand(sheet: ExcelJS.Worksheet, weekLabel: string): void {
   sub.font = { name: 'Calibri', size: 11, color: { argb: COLORS.subtitle } }
   sub.alignment = { vertical: 'middle', horizontal: 'center' }
 
-  for (let c = 1; c <= 13; c++) {
+  for (let c = 1; c <= 14; c++) {
     for (let r = 1; r <= 2; r++) {
       const cell = sheet.getCell(r, c)
       cell.border = thinBorder
@@ -69,14 +68,18 @@ function applyTableHeader(sheet: ExcelJS.Worksheet): void {
 
 function writeDataRow(sheet: ExcelJS.Worksheet, rowNum: number, it: BodegaWeeklyPlanItemEnriched): void {
   const row = sheet.getRow(rowNum)
-  row.height = 22
+  row.height = it.externalShop ? 36 : 22
+  const otherShop = it.externalShop ? otherWorkshopPlanNote(it.proveedor) : null
   const values: (string | number)[] = [
     weeklyPlanPrioridadDisplay(it.prioridadNivel),
     (it.cliente || '—').toUpperCase(),
     (it.requisitor || '—').toUpperCase(),
     it.po_numero || '—',
     formatPlanDateLongEs(it.po_fecha),
-    it.proyecto_nombre.toUpperCase(),
+    otherShop
+      ? `${it.proyecto_nombre.toUpperCase()}\n${otherShop.place} ${otherShop.close}`
+      : it.proyecto_nombre.toUpperCase(),
+    (it.proveedor || '—').toUpperCase(),
     it.actual.diseno / 100,
     it.actual.programacion / 100,
     it.actual.maquinado / 100,
@@ -91,26 +94,34 @@ function writeDataRow(sheet: ExcelJS.Worksheet, rowNum: number, it: BodegaWeekly
     cell.border = thinBorder
     cell.font = { name: 'Calibri', size: 10, color: { argb: COLORS.title } }
     const col = i + 1
-    if (col === 6) {
+    if (col === 6 || col === 7) {
       cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
-    } else if (col >= 7 && col <= 10) {
-      cell.alignment = { vertical: 'middle', horizontal: 'center' }
-      cell.numFmt = '0%'
+    } else if (col >= 8 && col <= 11) {
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      if (it.externalShop) {
+        cell.value = col === 8 && otherShop ? `${otherShop.place} ${otherShop.close}` : ''
+        cell.numFmt = '@'
+        cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
+        cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: 'FF92400E' } }
+      } else {
+        cell.numFmt = '0%'
+      }
     } else {
-      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: col === 5 || col === 11 }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: col === 5 || col === 12 }
     }
-    if (col === 13) {
+    if (col === 14) {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.facturaYellow } }
     } else if (it.projectTerminado) {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.doneGreen } }
-      if (col === 13) {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.facturaYellow } }
-      }
     }
-    if (col === 12 && /entregado|terminado/i.test(String(it.status_label))) {
+    if (col === 14) {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.facturaYellow } }
+    }
+    if (col === 13 && /entregado|terminado/i.test(String(it.status_label))) {
       cell.font = { name: 'Calibri', bold: true, size: 10, color: { argb: COLORS.statusRed } }
     }
   })
+  if (it.externalShop) sheet.mergeCells(rowNum, 8, rowNum, 11)
 }
 
 async function buildDataSheet(
@@ -155,7 +166,7 @@ async function buildDataSheet(
   const lastData = rowNum - 1
   if (lastData >= FIRST_DATA_ROW) {
     sheet.addConditionalFormatting({
-      ref: `G${FIRST_DATA_ROW}:J${lastData}`,
+      ref: `H${FIRST_DATA_ROW}:K${lastData}`,
       rules: [
         {
           type: 'dataBar',
@@ -184,7 +195,7 @@ async function buildChartsSheet(
 
   sheet.mergeCells('B2:H3')
   const t = sheet.getCell('B2')
-  t.value = `Gráficas — ${formatWeekRangeEs(entry.weekStart)}`
+  t.value = `Gráfica — ${formatWeekRangeEs(entry.weekStart)}`
   t.font = { name: 'Calibri', bold: true, size: 16 }
   t.alignment = { horizontal: 'left', vertical: 'middle' }
 
@@ -193,19 +204,9 @@ async function buildChartsSheet(
     sheet.addImage(imgId, { tl: { col: 0.2, row: 0.2 }, ext: { width: 140, height: 40 } })
   }
 
-  const [summaryBuf, stagesBuf, metaBuf] = await Promise.all([
-    canvasToPngArrayBuffer(renderWeeklyPlanSummaryChart(entry.bundle, 680, 300)),
-    canvasToPngArrayBuffer(renderWeeklyPlanStagesChart(entry.bundle, 680, 300)),
-    canvasToPngArrayBuffer(renderWeeklyPlanMetaVsRealChart(entry.bundle, 680, 300)),
-  ])
-
-  const i1 = workbook.addImage({ buffer: summaryBuf, extension: 'png' })
-  const i2 = workbook.addImage({ buffer: stagesBuf, extension: 'png' })
-  const i3 = workbook.addImage({ buffer: metaBuf, extension: 'png' })
-
-  sheet.addImage(i1, { tl: { col: 1, row: 4 }, ext: { width: 520, height: 230 } })
-  sheet.addImage(i2, { tl: { col: 1, row: 18 }, ext: { width: 520, height: 230 } })
-  sheet.addImage(i3, { tl: { col: 9, row: 4 }, ext: { width: 520, height: 480 } })
+  const chartBuf = await canvasToPngArrayBuffer(renderWeeklyPlanDetailChart(entry.bundle, 1400, 1040))
+  const image = workbook.addImage({ buffer: chartBuf, extension: 'png' })
+  sheet.addImage(image, { tl: { col: 1, row: 4 }, ext: { width: 980, height: 728 } })
 }
 
 export async function downloadWeeklyPlanExcel(weeks: WeeklyPlanExportWeek[]): Promise<void> {

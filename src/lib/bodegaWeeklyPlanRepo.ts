@@ -1,5 +1,7 @@
+import { isOtherWorkshopProject } from './bodegaExternalProvider'
 import { fetchOrdenesCompra, type OrdenCompraRow } from './bodegaOrdenes'
 import { fetchPieceIntervalsForProjects } from './bodegaPieceIntervalsRepo'
+import { fetchWorkIntervalsForProjects } from './bodegaWorkIntervalsRepo'
 import {
   compareProjectPrioridadNivel,
   hasProjectPrioridad,
@@ -13,6 +15,7 @@ import {
   weeklyPlanLagStages,
   weeklyPlanOverallPct,
   weeklyPlanPlannedOverallPct,
+  type WeeklyPlanStageId,
   type WeeklyPlanStageProgress,
 } from './bodegaWeeklyPlanProgress'
 import { fetchBodegaProjectsPrioridadList } from './bodegaProjectsPrioridadRepo'
@@ -21,10 +24,19 @@ import type { ProjectPiecePhotoRow } from './piecePhotosRepo'
 import { isPostgrestMissingColumnError } from './bodegaPiecesSchema'
 import { getSupabase } from './supabaseClient'
 import { weekMondayKey } from './bodegaWeekCalendar'
+import {
+  buildWeeklyPlanWeekFocus,
+  weekStageMark,
+  weeklyPlanWindow,
+  type WeeklyPlanWeekFocus,
+  type WeekStageMark,
+} from './bodegaWeeklyPlanWeekFocus'
+import { tryFinalizeExternalProviderProject } from './bodegaExternalProvider'
 
 export const BODEGA_WEEKLY_PLAN_PATCH = 'supabase/patch_bodega_weekly_plan.sql'
 export const BODEGA_WEEKLY_PLAN_PRIORIDAD_PATCH = 'supabase/patch_bodega_weekly_plan_prioridad.sql'
 export const BODEGA_WEEKLY_PLAN_FACTURA_PATCH = 'supabase/patch_bodega_weekly_plan_factura_archivo.sql'
+export const BODEGA_WEEKLY_PLAN_PROVEEDOR_PATCH = 'supabase/patch_bodega_weekly_plan_taller.sql'
 
 export type BodegaWeeklyPlanRow = {
   id: string
@@ -43,6 +55,8 @@ export type BodegaWeeklyPlanItemRow = {
   po_numero: string
   po_fecha: string | null
   proyecto_nombre: string
+  /** Empresa proveedora que desarrolla el proyecto. */
+  proveedor: string
   plan_diseno_pct: number
   plan_programacion_pct: number
   plan_maquinado_pct: number
@@ -71,6 +85,9 @@ export type BodegaWeeklyPlanItemEnriched = BodegaWeeklyPlanItemRow & {
   /** Prioridad viva del proyecto (si está ligado); si no, la guardada en la fila. */
   prioridadNivel: ProjectPrioridadNivel
   projectTerminado: boolean
+  /** En foto: el trabajo lo hace otro taller. No lleva porcentajes de este taller. */
+  externalShop: boolean
+  weekStageMarks: Record<WeeklyPlanStageId, WeekStageMark>
 }
 
 export type BodegaWeeklyPlanBundle = {
@@ -84,6 +101,7 @@ export type BodegaWeeklyPlanBundle = {
     itemsCompleted: number
     itemsActive: number
   }
+  weekFocus: WeeklyPlanWeekFocus
 }
 
 function safeText(v: unknown): string {
@@ -109,6 +127,7 @@ function mapItemRow(r: Record<string, unknown>): BodegaWeeklyPlanItemRow {
     po_numero: safeText(r.po_numero),
     po_fecha: r.po_fecha != null ? String(r.po_fecha).slice(0, 10) : null,
     proyecto_nombre: safeText(r.proyecto_nombre),
+    proveedor: safeText(r.proveedor),
     plan_diseno_pct: clampPct(r.plan_diseno_pct),
     plan_programacion_pct: clampPct(r.plan_programacion_pct),
     plan_maquinado_pct: clampPct(r.plan_maquinado_pct),
@@ -157,6 +176,11 @@ function throwWeeklyPlanDbError(err: unknown, context: string): never {
   if (isPostgrestMissingColumnError(err, 'factura_archivo')) {
     throw new Error(
       `Falta soporte de archivo de factura. Ejecuta ${BODEGA_WEEKLY_PLAN_FACTURA_PATCH} en el SQL Editor y recarga el esquema API.`,
+    )
+  }
+  if (isPostgrestMissingColumnError(err, 'proveedor')) {
+    throw new Error(
+      `Falta la columna proveedor. Ejecuta ${BODEGA_WEEKLY_PLAN_PROVEEDOR_PATCH} en el SQL Editor y recarga el esquema API.`,
     )
   }
   if (/invalid input syntax for type date/i.test(msg)) {
@@ -219,21 +243,27 @@ async function fetchPhotosByProjectIds(projectIds: string[]): Promise<Map<string
 async function fetchProjectMetaByIds(
   projectIds: string[],
 ): Promise<
-  Map<string, { status: string; routesConfirmed: boolean; folio: string; prioridadNivel: ProjectPrioridadNivel }>
+  Map<string, { status: string; routesConfirmed: boolean; folio: string; prioridadNivel: ProjectPrioridadNivel; finalizedAt: string | null }>
 > {
   const m = new Map<
     string,
-    { status: string; routesConfirmed: boolean; folio: string; prioridadNivel: ProjectPrioridadNivel }
+    { status: string; routesConfirmed: boolean; folio: string; prioridadNivel: ProjectPrioridadNivel; finalizedAt: string | null }
   >()
   if (projectIds.length === 0) return m
   const sb = getSupabase()
   let data: Record<string, unknown>[] | null = null
   let error: { message?: string; details?: string } | null = null
-  const sel = 'id, folio, status, programming_routes_confirmed_at, prioridad_nivel, prioridad'
+  const sel = 'id, folio, status, programming_routes_confirmed_at, prioridad_nivel, prioridad, project_finalized_at'
   const res = await sb.from('bodega_projects').select(sel).in('id', projectIds)
   data = (res.data as Record<string, unknown>[]) ?? null
   error = res.error
   let msg = [error?.message, error?.details].filter(Boolean).join(' ')
+  if (error && /project_finalized_at/i.test(msg)) {
+    const retry = await sb.from('bodega_projects').select('id, folio, status, programming_routes_confirmed_at, prioridad_nivel, prioridad').in('id', projectIds)
+    data = (retry.data as Record<string, unknown>[]) ?? null
+    error = retry.error
+    msg = [error?.message, error?.details].filter(Boolean).join(' ')
+  }
   if (error && /prioridad_nivel/i.test(msg)) {
     const r2 = await sb
       .from('bodega_projects')
@@ -250,6 +280,7 @@ async function fetchProjectMetaByIds(
       routesConfirmed: row.programming_routes_confirmed_at != null,
       folio: safeText(row.folio),
       prioridadNivel: parsePrioridadFromRow(row),
+      finalizedAt: row.project_finalized_at != null ? safeText(row.project_finalized_at) : null,
     })
   }
   return m
@@ -323,11 +354,12 @@ export async function fetchWeeklyPlanBundle(
   const rawItems = ((itemsRes.data as Record<string, unknown>[]) ?? []).map(mapItemRow)
   const projectIds = [...new Set(rawItems.map((i) => i.project_id).filter((id): id is string => Boolean(id)))]
 
-  const [piecesByProject, photosByProject, intervalsByProject, metaByProject] = await Promise.all([
+  const [piecesByProject, photosByProject, intervalsByProject, metaByProject, workIntervalsByProject] = await Promise.all([
     fetchPiecesByProjectIds(projectIds),
     fetchPhotosByProjectIds(projectIds),
     fetchPieceIntervalsForProjects(projectIds),
     fetchProjectMetaByIds(projectIds),
+    fetchWorkIntervalsForProjects(projectIds),
   ])
 
   const itemsWithStatus = await persistWeeklyPlanStatusLabelsFromProjects(rawItems, metaByProject)
@@ -341,61 +373,89 @@ export async function fetchWeeklyPlanBundle(
           intervals: intervalsByProject.get(item.project_id) ?? [],
           photos: photosByProject.get(item.project_id) ?? [],
           routesConfirmed: meta?.routesConfirmed ?? false,
+          projectWorkIntervals: workIntervalsByProject.get(item.project_id) ?? [],
         })
       : { diseno: 0, programacion: 0, maquinado: 0, armado: 0 }
 
     const projectStatus = meta?.status ?? null
     const projectTerminado = isWeeklyPlanProjectTerminado(projectStatus)
+    const externalShop = isOtherWorkshopProject(projectStatus)
     const prioridadNivel = meta?.prioridadNivel ?? item.prioridad_nivel
-    const lagStages = weeklyPlanLagStages(item, actual, { projectTerminado })
-    return {
+    const planAtHundred = {
       ...item,
+      plan_diseno_pct: 100,
+      plan_programacion_pct: 100,
+      plan_maquinado_pct: 100,
+      plan_armado_pct: 100,
+    }
+    const lagStages = externalShop ? [] : weeklyPlanLagStages(planAtHundred, actual, { projectTerminado })
+    const pieces = item.project_id ? piecesByProject.get(item.project_id) ?? [] : []
+    const finalizedAt = meta?.finalizedAt ?? null
+    const weekWindow = weeklyPlanWindow(plan.week_start)
+    const weekStageMarks = {
+      diseno: weekStageMark('diseno', pieces, actual.diseno, finalizedAt, weekWindow),
+      programacion: weekStageMark('programacion', pieces, actual.programacion, finalizedAt, weekWindow),
+      maquinado: weekStageMark('maquinado', pieces, actual.maquinado, finalizedAt, weekWindow),
+      armado: weekStageMark('armado', pieces, actual.armado, finalizedAt, weekWindow),
+    }
+    return {
+      ...planAtHundred,
       prioridad_nivel: prioridadNivel,
       actual,
-      plannedOverallPct: weeklyPlanPlannedOverallPct(item),
+      plannedOverallPct: weeklyPlanPlannedOverallPct(planAtHundred),
       actualOverallPct: weeklyPlanOverallPct(actual),
       lagStages,
       projectFolio: meta?.folio ?? null,
       projectStatus,
       prioridadNivel,
       projectTerminado,
+      externalShop,
+      weekStageMarks,
     }
   })
 
   const sortedItems = sortWeeklyPlanItems(enriched)
+  const finalizedAtByProject = new Map<string, string | null>()
+  for (const [id, meta] of metaByProject) finalizedAtByProject.set(id, meta.finalizedAt)
 
-  let plannedSum = 0
   let actualSum = 0
   let itemsBehind = 0
   let itemsWithoutDelayReason = 0
   let itemsCompleted = 0
   let itemsActive = 0
+  let scoredRows = 0
   for (const it of sortedItems) {
+    if (it.externalShop) continue
+    scoredRows++
+    actualSum += it.actualOverallPct
     if (it.projectTerminado) {
       itemsCompleted++
       continue
     }
     itemsActive++
-    plannedSum += it.plannedOverallPct
-    actualSum += it.actualOverallPct
     if (it.lagStages.length > 0) {
       itemsBehind++
       if (!it.delay_reason.trim()) itemsWithoutDelayReason++
     }
   }
-  const nActive = itemsActive || 1
 
   return {
     plan,
     items: sortedItems,
     weekSummary: {
-      plannedOverallPct: itemsActive ? Math.round(plannedSum / nActive) : 0,
-      actualOverallPct: itemsActive ? Math.round(actualSum / nActive) : 0,
+      plannedOverallPct: scoredRows ? 100 : 0,
+      actualOverallPct: scoredRows ? Math.round(actualSum / scoredRows) : 0,
       itemsBehind,
       itemsWithoutDelayReason,
       itemsCompleted,
       itemsActive,
     },
+    weekFocus: buildWeeklyPlanWeekFocus({
+      weekStart: plan.week_start,
+      items: sortedItems,
+      piecesByProject,
+      finalizedAtByProject,
+    }),
   }
 }
 
@@ -420,6 +480,7 @@ function buildWeeklyPlanItemInsertPayload(
     po_numero: input.po_numero ?? '',
     po_fecha: normalizeDateOnly(input.po_fecha),
     proyecto_nombre: input.proyecto_nombre ?? '',
+    proveedor: input.proveedor ?? '',
     plan_diseno_pct: clampPct(input.plan_diseno_pct ?? 0),
     plan_programacion_pct: clampPct(input.plan_programacion_pct ?? 0),
     plan_maquinado_pct: clampPct(input.plan_maquinado_pct ?? 0),
@@ -452,14 +513,20 @@ export async function insertWeeklyPlanItem(
     payload = buildWeeklyPlanItemInsertPayload(planId, input, false)
     res = await sb.from('bodega_weekly_plan_items').insert(payload).select('*').single()
   }
+  if (res.error && isPostgrestMissingColumnError(res.error, 'proveedor')) {
+    delete payload.proveedor
+    res = await sb.from('bodega_weekly_plan_items').insert(payload).select('*').single()
+  }
   if (res.error) throwWeeklyPlanDbError(res.error, 'No se pudo agregar la fila al plan')
-  return mapItemRow(res.data as Record<string, unknown>)
+  const row = mapItemRow(res.data as Record<string, unknown>)
+  if (row.project_id) await tryFinalizeExternalProviderProject(row.project_id)
+  return row
 }
 
 export async function updateWeeklyPlanItem(
   itemId: string,
   patch: WeeklyPlanItemInput,
-): Promise<void> {
+): Promise<boolean> {
   const sb = getSupabase()
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
   const keys: (keyof WeeklyPlanItemInput)[] = [
@@ -471,6 +538,7 @@ export async function updateWeeklyPlanItem(
     'po_numero',
     'po_fecha',
     'proyecto_nombre',
+    'proveedor',
     'plan_diseno_pct',
     'plan_programacion_pct',
     'plan_maquinado_pct',
@@ -505,6 +573,15 @@ export async function updateWeeklyPlanItem(
     ;({ error } = await sb.from('bodega_weekly_plan_items').update(payload).eq('id', itemId))
   }
   if (error) throwWeeklyPlanDbError(error, 'No se pudo actualizar la fila del plan')
+  if (patch.proveedor === undefined && patch.project_id === undefined) return false
+  const linked = await sb
+    .from('bodega_weekly_plan_items')
+    .select('project_id')
+    .eq('id', itemId)
+    .maybeSingle()
+  const projectId = linked.data?.project_id ? String(linked.data.project_id) : ''
+  if (!projectId) return false
+  return tryFinalizeExternalProviderProject(projectId)
 }
 
 export async function deleteWeeklyPlanItem(itemId: string): Promise<void> {
@@ -656,6 +733,7 @@ export function weeklyPlanStatusLabelFromProject(status: string): string {
     diseno_aprobado: 'Diseño aprobado',
     en_programacion: 'En programación',
     revision_programacion: 'Revisión cierre',
+    en_foto: 'En foto',
     terminado: 'Entregado',
   }
   return m[status] ?? status
@@ -682,30 +760,14 @@ async function persistWeeklyPlanStatusLabelsFromProjects(
   return patched
 }
 
-/** Metas sugeridas al importar según estado del proyecto. */
-function defaultPlanTargetsForStatus(status: string): {
+/** Cada etapa se compara contra 100. El avance real es el número de abajo. */
+function defaultPlanTargetsForStatus(_status: string): {
   plan_diseno_pct: number
   plan_programacion_pct: number
   plan_maquinado_pct: number
   plan_armado_pct: number
 } {
-  switch (status) {
-    case 'en_diseno':
-    case 'revision_diseno':
-    case 'modificacion_diseno':
-    case 'diseno_parcial':
-      return { plan_diseno_pct: 100, plan_programacion_pct: 0, plan_maquinado_pct: 0, plan_armado_pct: 0 }
-    case 'diseno_aprobado':
-      return { plan_diseno_pct: 100, plan_programacion_pct: 80, plan_maquinado_pct: 0, plan_armado_pct: 0 }
-    case 'en_programacion':
-      return { plan_diseno_pct: 100, plan_programacion_pct: 100, plan_maquinado_pct: 70, plan_armado_pct: 30 }
-    case 'revision_programacion':
-      return { plan_diseno_pct: 100, plan_programacion_pct: 100, plan_maquinado_pct: 100, plan_armado_pct: 100 }
-    case 'terminado':
-      return { plan_diseno_pct: 100, plan_programacion_pct: 100, plan_maquinado_pct: 100, plan_armado_pct: 100 }
-    default:
-      return { plan_diseno_pct: 50, plan_programacion_pct: 0, plan_maquinado_pct: 0, plan_armado_pct: 0 }
-  }
+  return { plan_diseno_pct: 100, plan_programacion_pct: 100, plan_maquinado_pct: 100, plan_armado_pct: 100 }
 }
 
 export function currentWeekMondayKey(): string {

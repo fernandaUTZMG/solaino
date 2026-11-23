@@ -83,7 +83,7 @@ export function BodegaWeeklyPlanExportModal(props: Props) {
           </h2>
           <p className="mt-1 text-[12px] text-slate-600">
             Elige una o varias semanas. Formato tipo <strong>MAQUINADOS</strong>: logo, tabla con barras naranjas,
-            columna factura amarilla y hoja aparte de gráficas (Excel) o página de gráficas (PDF).
+            columna factura amarilla y una gráfica con el detalle de la semana.
           </p>
         </div>
 

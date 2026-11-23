@@ -2,7 +2,16 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { sumOrdenTimeBreakdowns, type ProjectOrdenTimeBreakdown } from './bodegaProjectOrdenTimes'
 import type { BodegaOcReportGroup, BodegaReportesBundle } from './bodegaReportesRepo'
-import { formatWeekCell, quePasoEstaSemana, tallerWeekMinutes, type ReportAdvance } from './bodegaReportWeek'
+import { projectCierreNote } from './bodegaReportesRepo'
+import {
+  formatWeekCell,
+  formatWeekMinutes,
+  quePasoEstaSemana,
+  shopWeekTimes,
+  tallerWeekMinutes,
+  type ReportAdvance,
+  type ReportPieceLine,
+} from './bodegaReportWeek'
 
 const NAVY: [number, number, number] = [4, 26, 56]
 const SLATE: [number, number, number] = [51, 65, 85]
@@ -197,11 +206,11 @@ function drawWeekNote(doc: jsPDF, y: number, weekNote: string): number {
   const width = doc.internal.pageSize.getWidth() - MARGIN * 2
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
-  doc.setTextColor(120, 53, 15)
+  doc.setTextColor(136, 19, 55)
   const lines = doc.splitTextToSize(note, width - 8)
   const boxH = 8 + lines.length * 4.2
-  doc.setFillColor(255, 247, 237)
-  doc.setDrawColor(251, 191, 36)
+  doc.setFillColor(255, 241, 242)
+  doc.setDrawColor(225, 29, 72)
   doc.roundedRect(MARGIN, y, width, boxH, 1.5, 1.5, 'FD')
   doc.setFontSize(7)
   doc.text('NOTA DE LA SEMANA', MARGIN + 4, y + 4.5)
@@ -220,100 +229,317 @@ function weekCells(t: ProjectOrdenTimeBreakdown, done?: Pick<ReportAdvance, 'dis
   ]
 }
 
-function quePasoColors(raw: unknown): { text: [number, number, number]; fill: [number, number, number] } | null {
-  const text = String(raw ?? '')
-  if (/ausente|No se maquinó|Sin movimiento|Esperando|falta|esperan la foto|siguen en proceso/i.test(text)) {
-    return { text: [120, 53, 15], fill: [255, 247, 237] }
+function drawOcSection(doc: jsPDF, y: number, g: BodegaOcReportGroup, weekNote: string, startFresh: boolean): number {
+  if (startFresh && y > MARGIN + 20) {
+    doc.addPage()
+    y = MARGIN
   }
-  if (/Avanzó|Terminado|En revisión/i.test(text)) {
-    return { text: [6, 78, 59], fill: [236, 253, 245] }
-  }
-  return null
-}
-
-function drawOcSection(doc: jsPDF, y: number, g: BodegaOcReportGroup, weekNote: string): number {
   const width = doc.internal.pageSize.getWidth() - MARGIN * 2
-  y = ensureSpace(doc, y, 28)
+  y = ensureSpace(doc, y, 24)
   doc.setFillColor(...NAVY)
-  doc.roundedRect(MARGIN, y, width, 12, 1.2, 1.2, 'F')
+  doc.roundedRect(MARGIN, y, width, 16, 1.2, 1.2, 'F')
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
+  doc.setFontSize(8)
+  doc.setTextColor(191, 219, 254)
+  doc.text('ORDEN DE COMPRA', MARGIN + 4, y + 5.5)
+  doc.setFontSize(13)
   doc.setTextColor(255, 255, 255)
-  doc.text(`OC ${g.numero}`, MARGIN + 3, y + 7.5)
+  doc.text(g.numero, MARGIN + 42, y + 6)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
-  const meta = `${g.empresaNombre}  ·  ${g.solicitante}  ·  ${formatDateEs(g.ocFecha)}  ·  ${g.nTerminados}/${g.nProjects} terminados  ·  ${g.avgAvancePct}%`
-  doc.text(meta, MARGIN + 42, y + 7.5, { maxWidth: width - 46 })
-  y += 14
+  doc.setTextColor(226, 232, 240)
+  doc.text(
+    `${g.empresaNombre}   ·   ${g.solicitante}   ·   ${formatDateEs(g.ocFecha)}   ·   ${g.nProjects} proyectos`,
+    MARGIN + 4,
+    y + 12,
+    { maxWidth: width - 8 },
+  )
+  y += 22
 
-  const body = g.projects.map((pr) => {
-    const p = pr.project
-    const happened = quePasoEstaSemana({
-      status: p.status,
-      week: pr.weekTimes,
-      contratiempo: p.design_contratiempo_notes,
-      weekNote,
-      advance: pr.advance,
-    })
-    return [
-      `${p.folio}  ${p.nombre}`,
-      ...weekCells(pr.weekTimes, pr.advance),
-      `${pr.advance.headline} — ${happened}`,
-    ]
-  })
-  const every = (flag: (a: ReportAdvance) => boolean) => g.projects.length > 0 && g.projects.every((pr) => flag(pr.advance))
-  body.push([
-    'Suma de la OC',
-    ...weekCells(g.weekTimesSum, {
-      disenoCumplido: every((a) => a.disenoCumplido),
-      programacionCumplido: every((a) => a.programacionCumplido),
-      maquinadoCumplido: every((a) => a.maquinadoCumplido),
-      tallerCumplido: every((a) => a.tallerCumplido),
-    }),
-    '',
-  ])
+  if (g.projects.length === 0) {
+    doc.setFontSize(9)
+    doc.setTextColor(...SLATE)
+    doc.text('Esta orden no tiene proyectos.', MARGIN, y)
+    return y + 8
+  }
 
-  autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    theme: 'plain',
-    styles: { fontSize: 8, cellPadding: 2.2, lineColor: [226, 232, 240], lineWidth: 0.15 },
-    headStyles: { fillColor: [241, 245, 249], textColor: NAVY, fontStyle: 'bold', fontSize: 8, halign: 'center' },
-    bodyStyles: { textColor: [30, 41, 59], valign: 'middle' },
-    head: [['Proyecto', 'Diseño', 'Programación', 'Maquinado', 'Taller', 'Qué pasó']],
-    body,
-    columnStyles: {
-      0: { cellWidth: 62, fontStyle: 'bold' },
-      1: { cellWidth: 26, halign: 'center' },
-      2: { cellWidth: 32, halign: 'center' },
-      3: { cellWidth: 28, halign: 'center' },
-      4: { cellWidth: 24, halign: 'center' },
-      5: { cellWidth: 'auto' },
-    },
-    didParseCell: (data) => {
-      if (data.section !== 'body') return
-      const last = data.row.index === body.length - 1
-      if (last) {
-        data.cell.styles.fontStyle = 'bold'
-        data.cell.styles.fillColor = [241, 245, 249]
-        data.cell.styles.textColor = NAVY
-        return
-      }
-      if (data.column.index >= 1 && data.column.index <= 4 && String(data.cell.raw ?? '') === 'Cumplido') {
-        data.cell.styles.textColor = [6, 78, 59]
-        data.cell.styles.fontStyle = 'bold'
-      }
-      if (data.column.index === 5) {
-        const colors = quePasoColors(data.cell.raw)
-        if (colors) {
-          data.cell.styles.textColor = colors.text
-          data.cell.styles.fillColor = colors.fill
+  for (const pr of g.projects) {
+    y = drawProjectBlock(doc, y, pr, weekNote)
+  }
+  return y + 2
+}
+
+function pieceWasMachined(line: ReportPieceLine): boolean {
+  return line.maquinadoWeekMin >= 1 || line.maquinadoTotalMin >= 1
+}
+
+const REST_DESTINO_ORDER = ['Perfilado', 'Torno', 'Accesorios', 'CNC', 'Sin destino'] as const
+
+const REST_DESTINO_NOTA: Record<(typeof REST_DESTINO_ORDER)[number], string> = {
+  Perfilado: 'Van a perfiladora.',
+  Torno: 'Van a torno.',
+  Accesorios: 'Son accesorios.',
+  CNC: 'Asignadas a CNC. Aún no tienen tiempo de maquinado.',
+  'Sin destino': 'Todavía no tienen destino.',
+}
+
+/** Piezas que no salen en la tabla de maquinado, cada destino por separado. */
+function restPiecesByDestino(lines: ReportPieceLine[]): Array<{ destino: string; n: number; nota: string }> {
+  const rest = lines.filter((line) => !pieceWasMachined(line))
+  const counts = new Map<string, number>()
+  for (const line of rest) counts.set(line.destino, (counts.get(line.destino) ?? 0) + 1)
+  return REST_DESTINO_ORDER.filter((key) => (counts.get(key) ?? 0) > 0).map((key) => ({
+    destino: key,
+    n: counts.get(key) ?? 0,
+    nota: REST_DESTINO_NOTA[key],
+  }))
+}
+
+function drawTimeCard(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  title: string,
+  weekValue: string,
+  totalValue: string,
+): void {
+  const h = 24
+  doc.setDrawColor(226, 232, 240)
+  doc.setFillColor(255, 255, 255)
+  doc.rect(x, y, w, h, 'FD')
+  doc.setFillColor(...NAVY)
+  doc.rect(x, y, w, 6.5, 'F')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(255, 255, 255)
+  doc.text(title, x + 3, y + 4.4)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(...SLATE)
+  doc.text('Esta semana', x + 3, y + 13)
+  doc.text('Acumulado', x + 3, y + 19.5)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.setTextColor(...NAVY)
+  doc.text(weekValue, x + w - 3, y + 13.2, { align: 'right' })
+  doc.text(totalValue, x + w - 3, y + 19.7, { align: 'right' })
+}
+
+function drawProjectBlock(
+  doc: jsPDF,
+  y: number,
+  pr: BodegaOcReportGroup['projects'][number],
+  weekNote: string,
+): number {
+  const p = pr.project
+  const width = doc.internal.pageSize.getWidth() - MARGIN * 2
+  const machined = pr.pieces.filter(pieceWasMachined)
+  y = ensureSpace(doc, y, 52)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  const nameLines = doc.splitTextToSize(p.nombre, width - 8) as string[]
+  const headerH = 12 + nameLines.length * 4
+  doc.setFillColor(241, 245, 249)
+  doc.setDrawColor(203, 213, 225)
+  doc.roundedRect(MARGIN, y, width, headerH, 1.2, 1.2, 'FD')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(...SLATE)
+  doc.text('PROYECTO', MARGIN + 4, y + 5.2)
+  doc.setFontSize(11)
+  doc.setTextColor(...NAVY)
+  doc.text(p.folio, MARGIN + 28, y + 5.4)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(51, 65, 85)
+  doc.text(nameLines, MARGIN + 4, y + 11)
+  y += headerH + 4
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(...NAVY)
+  doc.text('Tiempos', MARGIN, y)
+  y += 3
+  const gap = 4
+  const cardW = (width - gap * 2) / 3
+  drawTimeCard(
+    doc,
+    MARGIN,
+    y,
+    cardW,
+    'DISEÑO',
+    formatWeekCell(pr.weekTimes.disenoMin, pr.advance.disenoCumplido),
+    formatWeekMinutes(pr.times.disenoMin),
+  )
+  drawTimeCard(
+    doc,
+    MARGIN + cardW + gap,
+    y,
+    cardW,
+    'PROGRAMACIÓN',
+    formatWeekCell(pr.weekTimes.programacionMin, pr.advance.programacionCumplido),
+    formatWeekMinutes(pr.times.programacionMin),
+  )
+  drawTimeCard(
+    doc,
+    MARGIN + (cardW + gap) * 2,
+    y,
+    cardW,
+    'ARMADO',
+    formatWeekMinutes(pr.weekTimes.armadoMin),
+    formatWeekMinutes(pr.times.armadoMin),
+  )
+  y += 28
+
+  y = ensureSpace(doc, y, 16)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(...NAVY)
+  doc.text('Maquinado CNC, por pieza', MARGIN, y)
+  y += 2
+
+  if (machined.length === 0) {
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(8)
+    doc.setTextColor(...SLATE)
+    doc.text('Ninguna pieza CNC registró tiempo de maquinado.', MARGIN, y + 4)
+    y += 8
+  } else {
+    const totalWeek = machined.reduce((sum, line) => sum + line.maquinadoWeekMin, 0)
+    const totalProg = machined.reduce((sum, line) => sum + line.progTotalMin, 0)
+    const body = machined.map((line) => [
+      line.label,
+      formatWeekMinutes(line.maquinadoWeekMin),
+      formatWeekMinutes(line.progTotalMin),
+    ])
+    body.push(['Total', formatWeekMinutes(totalWeek), formatWeekMinutes(totalProg)])
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: {
+        fontSize: 8,
+        cellPadding: { top: 1.8, right: 3, bottom: 1.8, left: 3 },
+        lineColor: [226, 232, 240],
+        lineWidth: 0.15,
+        valign: 'middle',
+      },
+      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold', halign: 'center' },
+      bodyStyles: { textColor: [30, 41, 59] },
+      head: [['Pieza', 'Esta semana', 'Tiempo de programado']],
+      body,
+      columnStyles: {
+        0: { cellWidth: width - 84, fontStyle: 'bold' },
+        1: { cellWidth: 36, halign: 'center' },
+        2: { cellWidth: 48, halign: 'center' },
+      },
+      didParseCell: (data) => {
+        if (data.section !== 'body') return
+        const last = data.row.index === body.length - 1
+        if (last) {
+          data.cell.styles.fontStyle = 'bold'
+          data.cell.styles.fillColor = [241, 245, 249]
+          data.cell.styles.textColor = NAVY
+          return
         }
-      }
-      else if (data.row.index % 2 === 1) data.cell.styles.fillColor = [248, 250, 252]
-    },
+        if (data.row.index % 2 === 1) data.cell.styles.fillColor = [248, 250, 252]
+      },
+    })
+    y = ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 4
+  }
+
+  const rest = restPiecesByDestino(pr.pieces)
+  if (rest.length > 0) {
+    y = ensureSpace(doc, y, 16)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(...NAVY)
+    doc.text('Otras piezas de este proyecto', MARGIN, y)
+    y += 2
+    const restBody = rest.map((row) => [row.destino, String(row.n), row.nota])
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: {
+        fontSize: 8,
+        cellPadding: { top: 1.8, right: 3, bottom: 1.8, left: 3 },
+        lineColor: [226, 232, 240],
+        lineWidth: 0.15,
+        valign: 'middle',
+      },
+      headStyles: { fillColor: [71, 85, 105], textColor: 255, fontStyle: 'bold' },
+      bodyStyles: { textColor: [30, 41, 59] },
+      head: [['Destino', 'Piezas', 'Aclaración']],
+      body: restBody,
+      columnStyles: {
+        0: { cellWidth: 36, fontStyle: 'bold' },
+        1: { cellWidth: 22, halign: 'center' },
+        2: { cellWidth: width - 58 },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.row.index % 2 === 1) {
+          data.cell.styles.fillColor = [248, 250, 252]
+        }
+      },
+    })
+    y = ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 4
+  }
+
+  const happened = quePasoEstaSemana({
+    status: p.status,
+    week: pr.weekTimes,
+    contratiempo: p.design_contratiempo_notes,
+    weekNote,
+    advance: pr.advance,
   })
-  return ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 8
+  const tallerWeek = tallerWeekMinutes(pr.weekTimes)
+  const tallerTotal = tallerWeekMinutes(pr.times)
+  const lines = [
+    `${pr.advance.headline}. ${happened}.`,
+    tallerWeek >= 1 || tallerTotal >= 1
+      ? `Taller (perfilado, detallado y armado): esta semana ${formatWeekMinutes(tallerWeek)}, acumulado ${formatWeekMinutes(tallerTotal)}.`
+      : '',
+  ].filter(Boolean)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  const wrapped = lines.flatMap((line) => doc.splitTextToSize(line, width - 8))
+  const boxH = 8 + wrapped.length * 4
+  y = ensureSpace(doc, y, boxH + 2)
+  doc.setFillColor(255, 251, 235)
+  doc.setDrawColor(251, 191, 36)
+  doc.roundedRect(MARGIN, y, width, boxH, 1.2, 1.2, 'FD')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(120, 53, 15)
+  doc.text('DÓNDE VA EL PROYECTO', MARGIN + 3, y + 4.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text(wrapped, MARGIN + 3, y + 9)
+  y += boxH + 4
+
+  const cierre = projectCierreNote(pr.activityNotes)
+  if (cierre) {
+    const cierreLines = doc.splitTextToSize(cierre.comment, width - 8) as string[]
+    const cierreH = 10 + cierreLines.length * 4
+    y = ensureSpace(doc, y, cierreH + 2)
+    doc.setFillColor(255, 251, 235)
+    doc.setDrawColor(217, 119, 6)
+    doc.roundedRect(MARGIN, y, width, cierreH, 1.2, 1.2, 'FD')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(7)
+    doc.setTextColor(120, 53, 15)
+    doc.text('NOTA DE CIERRE', MARGIN + 3, y + 4.5)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(69, 26, 3)
+    doc.text(cierreLines, MARGIN + 3, y + 9)
+    y += cierreH + 4
+  }
+
+  return y + 2
 }
 
 export type DownloadBodegaReportesPdfArgs = {
@@ -340,8 +566,14 @@ export async function downloadBodegaReportesPdf(args: DownloadBodegaReportesPdfA
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(...NAVY)
-  doc.text('Tiempo de esta semana (lun–vie, 8:00 a 17:30)', MARGIN, y)
+  doc.text('Tiempo de esta semana (lun–vie, 8:00 a 17:30). Cada hora cuenta una vez.', MARGIN, y)
   y += 4
+  const listed = ocGroups.flatMap((g) => g.projects)
+  const shopWeek = shopWeekTimes({
+    workIntervals: listed.flatMap((row) => row.weekWork),
+    pieceIntervals: listed.flatMap((row) => row.weekPieces),
+    now: bundle.week.end,
+  })
   autoTable(doc, {
     startY: y,
     margin: { left: MARGIN, right: MARGIN },
@@ -350,16 +582,9 @@ export async function downloadBodegaReportesPdf(args: DownloadBodegaReportesPdfA
     headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' },
     bodyStyles: { textColor: NAVY, fontStyle: 'bold', fillColor: [248, 250, 252] },
     head: [['Diseño', 'Programación', 'Maquinado', 'Taller']],
-    body: [weekCells(stats.weekTimes)],
+    body: [weekCells(shopWeek)],
   })
   y = ((doc as JsPdfWithTable).lastAutoTable?.finalY ?? y) + 8
-
-  y = ensureSpace(doc, y, 16)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(12)
-  doc.setTextColor(...NAVY)
-  doc.text('Por orden de compra', MARGIN, y)
-  y += 6
 
   if (ocGroups.length === 0) {
     doc.setFont('helvetica', 'normal')
@@ -367,9 +592,9 @@ export async function downloadBodegaReportesPdf(args: DownloadBodegaReportesPdfA
     doc.setTextColor(...SLATE)
     doc.text('No hay órdenes que coincidan con el criterio del reporte.', MARGIN, y)
   } else {
-    for (const g of ocGroups) {
-      y = drawOcSection(doc, y, g, weekNote)
-    }
+    ocGroups.forEach((g, index) => {
+      y = drawOcSection(doc, y, g, weekNote, index > 0)
+    })
   }
 
   addPageFooter(doc, bundle.week.label)

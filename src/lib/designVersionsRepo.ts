@@ -287,6 +287,37 @@ export async function closeOtherPendingDesignVersions(
   }
 }
 
+export function isLiveDesignEntregaStatus(status: DesignVersionStatus): boolean {
+  return status === 'en_revision' || status === 'aprobada' || status === 'aprobada_parcial'
+}
+
+async function designEntregaAccion(versionId: string, accion: 'quitar' | 'usar'): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.rpc('bodega_design_entrega_accion', {
+    p_version_id: versionId,
+    p_accion: accion,
+  })
+  if (error) {
+    const msg = [error.message, error.details].filter(Boolean).join(' ')
+    if (/bodega_design_entrega_accion|function.*does not exist|could not find/i.test(msg)) {
+      throw new Error(
+        'Falta la opción de quitar o elegir la revisión. Ejecuta supabase/patch_bodega_design_entrega_elegir.sql en Supabase.',
+      )
+    }
+    throw new Error(msg || 'No se pudo actualizar la entrega')
+  }
+}
+
+/** Quita una entrega subida de más. No borra piezas que ya tienen destino o trabajo. */
+export async function withdrawDesignEntrega(versionId: string): Promise<void> {
+  await designEntregaAccion(versionId, 'quitar')
+}
+
+/** Esta revisión es la que se revisa y de la que salen las piezas. Las otras del mismo ensamble quedan reemplazadas. */
+export async function chooseDesignEntrega(versionId: string): Promise<void> {
+  await designEntregaAccion(versionId, 'usar')
+}
+
 export async function createSignedUrlForDesignZip(storagePath: string, expiresSec = 3600): Promise<string | null> {
   return createSignedUrlForBodegaStorage(BODEGA_PROYECTOS_BUCKET, storagePath, expiresSec)
 }

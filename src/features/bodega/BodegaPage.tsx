@@ -1,4 +1,4 @@
-﻿import type { PostgrestSingleResponse } from '@supabase/supabase-js'
+import type { PostgrestSingleResponse } from '@supabase/supabase-js'
 import { filterCotizacionLineas, isCotizacionAmountSummaryLine } from '../../lib/ordenCompraPdfExtract'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getSupabase } from '../../lib/supabaseClient'
@@ -32,8 +32,10 @@ import {
   createSignedUrlForDesignZip,
   approvedDesignEntregaVersions,
   approvedDesignZipSummary,
+  chooseDesignEntrega,
   fetchDesignVersions,
   nextDesignVersionPendingReview,
+  withdrawDesignEntrega,
   type ProjectDesignVersionRow,
 } from '../../lib/designVersionsRepo'
 import {
@@ -46,8 +48,11 @@ import {
 import type { CncModuleKind, ProjectMachineVersionRow } from '../../lib/machineVersionsRepo'
 import { fetchMachineVersions } from '../../lib/machineVersionsRepo'
 import {
+  deleteProjectArmadoPhoto,
   fetchPiecePhotos,
   insertPiecePhoto,
+  insertProjectArmadoPhoto,
+  replaceProjectArmadoPhotoRecord,
   type ProjectPiecePhotoRow,
 } from '../../lib/piecePhotosRepo'
 import {
@@ -61,7 +66,8 @@ import {
   startWorkInterval,
   type BodegaWorkIntervalRow,
 } from '../../lib/bodegaWorkIntervalsRepo'
-import { closeProgrammingOfficeClockIfComplete } from '../../lib/bodegaWorkIntervalClose'
+import { closeProgrammingOfficeClockIfComplete, closeWorkInterval } from '../../lib/bodegaWorkIntervalClose'
+import { projectArmadoClockClosed } from '../../lib/bodegaProjectArmado'
 import { fetchPieceIntervalsForProject, fetchPieceIntervalsForProjects } from '../../lib/bodegaPieceIntervalsRepo'
 import type { BodegaPieceIntervalRow } from '../../lib/bodegaPieceIntervalsRepo'
 import {
@@ -87,6 +93,11 @@ import {
 } from '../../lib/bodegaStorageUpload'
 import { businessMinutesBetween } from '../../lib/workHours'
 import { runDesignZipUpload } from '../../lib/bodegaDesignUploadFlow'
+import {
+  fetchLatestProjectProveedor,
+  isExternalBodegaProveedor,
+  tryFinalizeExternalProviderProject,
+} from '../../lib/bodegaExternalProvider'
 import { applyDesignPlanosAutoAssign } from '../../lib/bodegaDesignPlanosAutoAssign'
 import { isXtDesignFile, parseXtFile } from '../../lib/xtParasolidPieces'
 import {
@@ -109,7 +120,8 @@ import {
   fetchProjectPieceFlowMeta,
   fetchProjectPieces,
   finalizeProjectBySupervisor,
-  syncProjectPiecesFromDesignPathsDetailed,
+  reopenProgrammingRoutesIfNamedPiecesLackDestination,
+  syncProjectPiecesToDesignNames,
   type BodegaProjectPieceRow,
   type BodegaProjectPieceWithProject,
 } from '../../lib/bodegaPiecesRepo'
@@ -177,6 +189,7 @@ import {
 import { findDesignZipPiecesMissingPlanos, visibleDesignPieces, type DesignZipPiecePair } from '../../lib/designZipPiecePairs'
 import { analyzeDesignZip, filterSwPartZipPaths, isSwPartZipPath } from '../../lib/zipDesignPackage'
 import { isXtDesignVersion } from '../../lib/xtDesignManifest'
+import { piecesBelongingToDesignPaths } from '../../lib/bodegaXtAssemblies'
 
 type ProjectStatus =
   | 'pendiente'
@@ -187,6 +200,7 @@ type ProjectStatus =
   | 'diseno_aprobado'
   | 'en_programacion'
   | 'revision_programacion'
+  | 'en_foto'
   | 'terminado'
 
 type BodegaProjectRow = {
@@ -207,6 +221,8 @@ type BodegaProjectRow = {
   prioridadNivel: ProjectPrioridadNivel
   created_at: string
   updated_at: string | null
+  /** Cierre formal del encargado. Si tiene fecha, el proyecto ya no se lista en Bodega. */
+  projectFinalizedAt: string | null
 }
 
 type CatalogOpt = { id: string; nombre: string }
@@ -220,6 +236,7 @@ function statusLabel(s: ProjectStatus): string {
   if (s === 'diseno_aprobado') return 'Diseño aprobado'
   if (s === 'en_programacion') return 'En programación'
   if (s === 'revision_programacion') return 'Revisión programación'
+  if (s === 'en_foto') return 'En foto'
   return 'Terminado'
 }
 
@@ -232,6 +249,7 @@ function statusTone(s: ProjectStatus): string {
   if (s === 'diseno_aprobado') return 'bg-emerald-50 text-emerald-800 border-emerald-200'
   if (s === 'en_programacion') return 'bg-programacion-50 text-programacion-900 border-programacion-200'
   if (s === 'revision_programacion') return 'bg-orange-50 text-orange-900 border-orange-200'
+  if (s === 'en_foto') return 'bg-amber-50 text-amber-950 border-amber-200'
   return 'bg-emerald-50 text-emerald-800 border-emerald-200'
 }
 
@@ -460,6 +478,10 @@ export function BodegaPage(props: {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<BodegaProjectRow[]>([])
+  /** Partidas cuyo proyecto ya se finalizó: no vuelven a ofrecerse como pendientes. */
+  const [archivedLineKeys, setArchivedLineKeys] = useState<Set<string>>(() => new Set())
+  /** OC en la que todos los proyectos ya se finalizaron: sale de Bodega. */
+  const [archivedOcIds, setArchivedOcIds] = useState<Set<string>>(() => new Set())
   const [ordenes, setOrdenes] = useState<OrdenCompraRow[]>([])
   const [ordenesOk, setOrdenesOk] = useState(true)
   const [filterOrdenCompraId, setFilterOrdenCompraId] = useState<string | null>(null)
@@ -493,6 +515,8 @@ export function BodegaPage(props: {
     project_finalized_at: string | null
   } | null>(null)
   const [designZipPaths, setDesignZipPaths] = useState<string[]>([])
+  /** Proyecto al que pertenecen `designZipPaths`. Evita copiar el .x_t del proyecto anterior. */
+  const [designPathsProjectId, setDesignPathsProjectId] = useState<string | null>(null)
   const [designZipPathsLoading, setDesignZipPathsLoading] = useState(false)
   const [designZipPathsError, setDesignZipPathsError] = useState<string | null>(null)
   const [pendingReviewPaths, setPendingReviewPaths] = useState<string[]>([])
@@ -506,6 +530,7 @@ export function BodegaPage(props: {
     missing: DesignZipPiecePair[]
   } | null>(null)
   const [designReviewBusy, setDesignReviewBusy] = useState(false)
+  const [entregaActionBusy, setEntregaActionBusy] = useState(false)
   const [confirmedFolders, setConfirmedFolders] = useState<DesignConfirmedFolderRow[]>([])
   const [machineVersions, setMachineVersions] = useState<ProjectMachineVersionRow[]>([])
   const [programmingUploadBusy, setProgrammingUploadBusy] = useState(false)
@@ -569,6 +594,7 @@ export function BodegaPage(props: {
   /** Si no hay columna `prioridad_nivel` ni booleano `prioridad`, no se puede guardar nivel. */
   const prioridadNivelColumnAvailableRef = useRef(true)
   const prioridadLegacyColumnAvailableRef = useRef(true)
+  const finalizedAtColumnAvailableRef = useRef(true)
   const [prioridadDbAvailable, setPrioridadDbAvailable] = useState(true)
   const canTogglePrioridad = canSetProjectPrioridad && prioridadDbAvailable
 
@@ -627,21 +653,24 @@ export function BodegaPage(props: {
   )
 
   const destinosDesignPaths = useMemo(() => {
+    if (!designModalProject || designPathsProjectId !== designModalProject.id) return []
     const fromDesign = filterSwPartZipPaths(designZipPaths)
     const fromPending = filterSwPartZipPaths(pendingReviewPaths)
-    const fromPieces = projectPieces
-      .map((p) => p.source_path)
-      .filter((p): p is string => Boolean(p && filterSwPartZipPaths([p]).length > 0))
     const seen = new Set<string>()
     const out: string[] = []
-    for (const p of [...fromDesign, ...fromPending, ...fromPieces]) {
+    for (const p of [...fromDesign, ...fromPending]) {
       const key = p.toLowerCase()
       if (seen.has(key)) continue
       seen.add(key)
       out.push(p)
     }
     return out
-  }, [designZipPaths, pendingReviewPaths, projectPieces])
+  }, [designModalProject, designPathsProjectId, designZipPaths, pendingReviewPaths])
+
+  const xtScopedPieces = useMemo(
+    () => piecesBelongingToDesignPaths(projectPieces, destinosDesignPaths),
+    [projectPieces, destinosDesignPaths],
+  )
 
   const confirmedFolderKeysForPanel = useMemo(() => {
     const versionId = pendingDesignReviewVersion?.id ?? primaryApprovedDesignVersion?.id
@@ -679,29 +708,29 @@ export function BodegaPage(props: {
 
   const cncModuleTabsVisible = useMemo((): CncModuleKind[] => {
     if (programmingRoutesLocked && canUploadBodegaMachine(props.role)) {
-      return programmerCncModulesWithPieces(projectPieces).filter(
+      return programmerCncModulesWithPieces(xtScopedPieces).filter(
         (m): m is 'programacion' | 'torno' => m === 'programacion' || m === 'torno',
       )
     }
     return ['programacion', 'torno', 'perfilado']
-  }, [programmingRoutesLocked, projectPieces, props.role])
+  }, [programmingRoutesLocked, xtScopedPieces, props.role])
 
   const projectClosureProgress = useMemo(
-    () => computeProjectPieceClosureProgress(projectPieces, piecePhotos),
-    [projectPieces, piecePhotos],
+    () => computeProjectPieceClosureProgress(xtScopedPieces, piecePhotos),
+    [xtScopedPieces, piecePhotos],
   )
 
   const projectPipelineDisplay = useMemo(() => {
     if (!designModalProject || !projectUsesOperationalPipeline(designModalProject.status)) return null
     return computeProjectPipelineDisplay({
-      pieces: projectPieces,
+      pieces: xtScopedPieces,
       intervals: pieceIntervals,
       photos: piecePhotos,
       routesConfirmed: programmingRoutesLocked,
     })
   }, [
     designModalProject,
-    projectPieces,
+    xtScopedPieces,
     pieceIntervals,
     piecePhotos,
     programmingRoutesLocked,
@@ -839,35 +868,16 @@ export function BodegaPage(props: {
     setWorkIntervals(iv)
   }
 
-  async function maybeStartProgrammingClockForViewer(project: BodegaProjectRow) {
+  async function stopProgrammingClockStartedOnOpen(project: BodegaProjectRow) {
     if (!canUploadBodegaMachine(props.role) && !canManageBodegaLikeAdmin(props.role)) return
-    const st = project.status
-    if (
-      ![
-        'revision_diseno',
-        'diseno_aprobado',
-        'diseno_parcial',
-        'en_programacion',
-        'revision_programacion',
-      ].includes(st)
-    ) {
-      return
-    }
     try {
-      const pieces = await fetchProjectPieces(project.id)
-      const pending = piecesPendingInCncModule(pieces, 'programacion')
-      if (pending.length === 0) {
-        // Programación ya cerrada: no reabrir el reloj al entrar al proyecto.
-        await closeProgrammingOfficeClockIfComplete({ projectId: project.id, pieces })
-        const iv = await fetchWorkIntervals(project.id)
-        setWorkIntervals(iv)
-        return
-      }
-      await startWorkInterval(project.id, 'cnc_programacion')
+      // El tiempo ya no corre al entrar. Si quedó un reloj de proyecto abierto, se cierra.
+      await closeWorkInterval(project.id, 'cnc_programacion')
+      await closeWorkInterval(project.id, 'cnc_torno')
       const iv = await fetchWorkIntervals(project.id)
       setWorkIntervals(iv)
     } catch {
-      /* reloj idempotente; si falla no bloquea el panel */
+      /* si no había reloj abierto, no bloquea el panel */
     }
   }
 
@@ -892,27 +902,34 @@ export function BodegaPage(props: {
     const initialTab = allowed.some(([id]) => id === preferredTab)
       ? preferredTab
       : (allowed[0]?.[0] ?? 'diseno')
+    const tabToOpen = row.status === 'en_foto' && !opts?.preserveTab ? 'fotos' : initialTab
+    const visibleTab = allowed.some(([id]) => id === tabToOpen) ? tabToOpen : initialTab
     if (opts?.preserveTab) {
       skipProgrammerAutoTabOnceRef.current = true
       programmerCncAutoTabRef.current = row.id
     }
     setDesignModalProject(row)
+    setProjectPieces([])
+    setDesignVersions([])
+    setDesignZipPaths([])
+    setPendingReviewPaths([])
+    setDesignPathsProjectId(null)
     setDesignModalProjectInfoOpen(false)
     setProgrammingFullscreenOpen(false)
     setCncModuleTab(opts?.cncModuleTab ?? 'programacion')
-    setDeliveryTab(initialTab)
+    setDeliveryTab(visibleTab)
     setDesignCommentDraft('')
     setBodegaNotice(null)
     setManualAvanceInput(String(Math.min(100, Math.max(0, Number(row.avance_pct) || 0))))
     if (uid) {
       writeStoredBodegaDeliveryWorkspace(uid, {
         projectId: row.id,
-        tab: initialTab,
+        tab: visibleTab,
         cncModuleTab: opts?.cncModuleTab ?? 'programacion',
       })
     }
     await loadProjectDeliveries(row.id)
-    await maybeStartProgrammingClockForViewer(row)
+    await stopProgrammingClockStartedOnOpen(row)
   }
 
   function closeDesignModal() {
@@ -992,6 +1009,7 @@ export function BodegaPage(props: {
 
   useEffect(() => {
     if (!designModalProject) return
+    if (designModalProject.status === 'en_foto') return
     const pid = designModalProject.id
     if (!programmingRoutesLocked || !canUploadBodegaMachine(props.role)) return
     if (skipProgrammerAutoTabOnceRef.current) {
@@ -1014,6 +1032,7 @@ export function BodegaPage(props: {
   useEffect(() => {
     if (!designModalProject || approvedDesignEntregaVersionsList.length === 0) {
       setDesignZipPaths([])
+      setDesignPathsProjectId(designModalProject?.id ?? null)
       setDesignZipPathsError(null)
       setDesignZipPathsLoading(false)
       return
@@ -1031,7 +1050,10 @@ export function BodegaPage(props: {
     void (async () => {
       try {
         const paths = await resolveApprovedDesignEntregaEntryPaths(approvedDesignEntregaVersionsList)
-        if (!cancelled) setDesignZipPaths(paths)
+        if (!cancelled) {
+          setDesignZipPaths(paths)
+          setDesignPathsProjectId(designModalProject.id)
+        }
       } catch (e) {
         if (!cancelled) {
           setDesignZipPaths([])
@@ -1077,20 +1099,33 @@ export function BodegaPage(props: {
 
   useEffect(() => {
     if (!designModalProject) return
+    if (designPathsProjectId !== designModalProject.id) return
     const xtReady =
       isXtDesignVersion(primaryApprovedDesignVersion) || isXtDesignVersion(pendingDesignReviewVersion)
     if (!xtReady) return
     const paths = destinosDesignPaths
     if (paths.length === 0) return
+    const projectId = designModalProject.id
     let cancelled = false
     void (async () => {
       try {
-        const sync = await syncProjectPiecesFromDesignPathsDetailed(designModalProject.id, paths, {
-          swPartOnly: true,
-        })
-        if (cancelled || sync.added === 0) return
-        const pieces = await fetchProjectPieces(designModalProject.id)
-        if (!cancelled) setProjectPieces(pieces)
+        const pieces = await syncProjectPiecesToDesignNames(projectId, paths)
+        let reopened = false
+        try {
+          reopened = await reopenProgrammingRoutesIfNamedPiecesLackDestination(projectId, paths, pieces)
+        } catch (e) {
+          if (!cancelled) setError(e instanceof Error ? e.message : 'No se pudo abrir el proyecto para la pieza sin destino')
+        }
+        if (!cancelled) {
+          setProjectPieces(pieces)
+          if (reopened) {
+            const meta = await fetchProjectPieceFlowMeta(projectId)
+            setPieceFlowMeta(meta)
+            setBodegaNotice(
+              'Quedó una pieza sin destino al reemplazar el archivo. El proyecto se abrió para que le asignes CNC, torno, perfiladora o accesorio y vuelvas a confirmar.',
+            )
+          }
+        }
       } catch {
         /* la asignación aún puede usar las rutas del ensamble */
       }
@@ -1100,6 +1135,7 @@ export function BodegaPage(props: {
     }
   }, [
     designModalProject?.id,
+    designPathsProjectId,
     primaryApprovedDesignVersion?.id,
     pendingDesignReviewVersion?.id,
     destinosDesignPaths,
@@ -1113,55 +1149,6 @@ export function BodegaPage(props: {
       setCncModuleTab(modules[0]!)
     }
   }, [programmingRoutesLocked, projectPieces, cncModuleTab, props.role])
-
-  useEffect(() => {
-    if (!designModalProject || deliveryTab !== 'cnc') return
-    if (!canUploadBodegaMachine(props.role) && !canManageBodegaLikeAdmin(props.role)) return
-    if (!step3FolderStatus.complete) return
-    const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
-    if (pendingProg.length === 0) return
-    const lane: BodegaWorkIntervalLane = 'cnc_programacion'
-    const key = `${designModalProject.id}:${lane}:delivery`
-    if (cncClockKeyRef.current === key) return
-    cncClockKeyRef.current = key
-    void (async () => {
-      try {
-        await startWorkInterval(designModalProject.id, lane)
-        const iv = await fetchWorkIntervals(designModalProject.id)
-        setWorkIntervals(iv)
-      } catch {
-        cncClockKeyRef.current = null
-      }
-    })()
-  }, [
-    designModalProject?.id,
-    deliveryTab,
-    props.role,
-    step3FolderStatus.complete,
-    projectPieces,
-  ])
-
-  useEffect(() => {
-    if (!designModalProject || deliveryTab !== 'cnc') return
-    if (!canUploadBodegaMachine(props.role) && !canManageBodegaLikeAdmin(props.role)) return
-    if (!programmingRoutesLocked) return
-    const pendingProg = piecesPendingInCncModule(projectPieces, 'programacion')
-    if (pendingProg.length === 0) return
-    const lane: BodegaWorkIntervalLane =
-      cncModuleTab === 'torno' ? 'cnc_torno' : 'cnc_programacion'
-    const key = `${designModalProject.id}:${lane}:routes`
-    if (cncClockKeyRef.current === key) return
-    cncClockKeyRef.current = key
-    void (async () => {
-      try {
-        await startWorkInterval(designModalProject.id, lane)
-        const iv = await fetchWorkIntervals(designModalProject.id)
-        setWorkIntervals(iv)
-      } catch {
-        cncClockKeyRef.current = null
-      }
-    })()
-  }, [designModalProject?.id, deliveryTab, cncModuleTab, props.role, programmingRoutesLocked, projectPieces])
 
   /** Cuando ya no hay piezas CNC por programar, cierra el reloj de oficina (y no lo reabre). */
   useEffect(() => {
@@ -1245,6 +1232,52 @@ export function BodegaPage(props: {
     else setError('No se pudo generar el enlace de descarga.')
   }
 
+  async function reloadEntregaAfterAccion() {
+    if (!designModalProject) return
+    await refreshModalProjectFromServer(designModalProject.id)
+    await loadProjectDeliveries(designModalProject.id)
+  }
+
+  async function withdrawEntrega(v: ProjectDesignVersionRow) {
+    if (!designModalProject || entregaActionBusy) return
+    const ok = window.confirm(
+      `¿Quitar V${v.version} (${v.zip_filename})? Deja de usarse para separar piezas. Las piezas que ya tienen destino o trabajo no se borran.`,
+    )
+    if (!ok) return
+    setEntregaActionBusy(true)
+    setError(null)
+    try {
+      await withdrawDesignEntrega(v.id)
+      await reloadEntregaAfterAccion()
+      setBodegaNotice(`Se quitó V${v.version}. Las piezas del archivo que sigue en pie no se duplican.`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo quitar la entrega')
+    } finally {
+      setEntregaActionBusy(false)
+    }
+  }
+
+  async function chooseEntrega(v: ProjectDesignVersionRow) {
+    if (!designModalProject || entregaActionBusy) return
+    const ok = window.confirm(
+      `¿Usar V${v.version} (${v.zip_filename}) para revisar y separar las piezas? Las otras revisiones del mismo ensamble quedan reemplazadas y no duplican piezas.`,
+    )
+    if (!ok) return
+    setEntregaActionBusy(true)
+    setError(null)
+    try {
+      await chooseDesignEntrega(v.id)
+      await reloadEntregaAfterAccion()
+      setBodegaNotice(
+        `V${v.version} es la revisión que se revisa y de la que salen las piezas. El encargado la confirma y después se separan los destinos.`,
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo elegir la entrega')
+    } finally {
+      setEntregaActionBusy(false)
+    }
+  }
+
   /**
    * Sube una o varias entregas de diseño. Cada archivo queda como su propia versión para que el
    * encargado la confirme por separado; `mode` decide si las nuevas se suman a las pendientes o las reemplazan.
@@ -1259,6 +1292,14 @@ export function BodegaPage(props: {
     if (!canUploadDesign) return
     const list = files.filter(Boolean)
     if (list.length === 0) return
+    const proveedor = await fetchLatestProjectProveedor(designModalProject.id)
+    const tieneTiempoDiseno = workIntervals.some((r) => r.lane === 'diseno')
+    if (isExternalBodegaProveedor(proveedor) && !tieneTiempoDiseno) {
+      setError(
+        'Este proyecto lo desarrolla otro proveedor. Pulsa Inicio en el reloj de diseño antes de subir el archivo, para que quede registrado el tiempo.',
+      )
+      return
+    }
     setDesignUploadBusy(true)
     setDesignUploadPhase('Subiendo entrega…')
     setError(null)
@@ -1268,11 +1309,12 @@ export function BodegaPage(props: {
       st === 'modificacion_diseno' ||
       st === 'diseno_parcial' ||
       entregaRows.some((x) => x.status === 'requiere_cambios')
+    let externalFinalized = false
     try {
       for (let i = 0; i < list.length; i++) {
         const file = list[i]!
         const prefix = list.length > 1 ? `Archivo ${i + 1} de ${list.length}: ` : ''
-        await runDesignZipUpload({
+        const finalizedNow = await runDesignZipUpload({
           project: {
             id: designModalProject.id,
             folio: designModalProject.folio,
@@ -1289,6 +1331,7 @@ export function BodegaPage(props: {
           supersedePending: mode === 'corregir' && i === 0,
           keepPieceNames: keepPieceNamesByFile[file.name],
         })
+        if (finalizedNow) externalFinalized = true
       }
 
       let planoNotice = ''
@@ -1321,6 +1364,28 @@ export function BodegaPage(props: {
           parts.push(`sin coincidencia: ${auto.unmatched.join(', ')}`)
         }
         if (parts.length > 0) planoNotice = ` ${parts.join('. ')}.`
+      }
+
+      if (mode === 'corregir' && xtFiles.length === 1) {
+        const versions = await fetchDesignVersions(designModalProject.id)
+        const newest = versions
+          .filter((v) => (v.package_category ?? 'entrega_diseno') === 'entrega_diseno')
+          .sort((a, b) => b.version - a.version)[0]
+        if (newest) await chooseDesignEntrega(newest.id)
+      }
+
+      if (await tryFinalizeExternalProviderProject(designModalProject.id)) externalFinalized = true
+      if (externalFinalized) {
+        setDesignModalProject((prev) => (prev ? { ...prev, status: 'en_foto' } : prev))
+        setDeliveryTab('fotos')
+        await refreshModalProjectFromServer(designModalProject.id)
+        await loadProjectDeliveries(designModalProject.id)
+        setDesignCommentDraft('')
+        setBodegaNotice(
+          'El proveedor no es Solaino. El diseño ya está entregado y con tiempo. El proyecto pasó a la foto y sigue en Bodega hasta que el encargado o el admin lo finalicen.',
+        )
+        props.onBodegaDeliveriesChanged?.()
+        return
       }
 
       await refreshModalProjectFromServer(designModalProject.id)
@@ -1567,16 +1632,113 @@ export function BodegaPage(props: {
     await uploadPiecePhotosCore(pieceIds, files)
   }
 
-  async function onSupervisorFinalizeProject() {
+  async function uploadArmadoPhoto(files: File[]) {
+    const file = files[0]
+    if (!designModalProject || !file || !canUploadPiecePhotos) return
+    setPhotoUploadBusy(true)
+    setError(null)
+    try {
+      if (!isImageLikeFile(file)) throw new Error('La foto tiene que ser una imagen (JPG, PNG, WEBP).')
+      const sb = getSupabase()
+      await refreshSessionBeforeStorageUpload(sb)
+      const safeName = sanitizeStorageFileName(file.name)
+      const path = `${designModalProject.folio}/evidencias/armado/${crypto.randomUUID()}-${safeName}`
+      await uploadBodegaProyectosBinary(sb, BODEGA_PROYECTOS_BUCKET, path, file, guessImageContentType(file))
+      await insertProjectArmadoPhoto({
+        projectId: designModalProject.id,
+        storagePath: path,
+        filename: file.name,
+      })
+      await insertProjectActivity({
+        projectId: designModalProject.id,
+        type: 'piece_photo_uploaded',
+        payload: { filename: file.name, armado_proyecto: true },
+      })
+      setBodegaNotice(
+        canSupervisorFinalizeBodegaProject(props.role)
+          ? 'Foto del armado subida. Si hace falta, escribe la nota y finaliza el proyecto.'
+          : 'Foto del armado subida. El encargado puede finalizar el proyecto.',
+      )
+      await refreshModalProjectFromServer(designModalProject.id)
+      await loadProjectDeliveries(designModalProject.id)
+      props.onBodegaDeliveriesChanged?.()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se subió la foto del armado')
+    } finally {
+      setPhotoUploadBusy(false)
+    }
+  }
+
+  async function replaceArmadoPhoto(photo: ProjectPiecePhotoRow, file: File) {
+    if (!designModalProject || !canUploadPiecePhotos) return
+    setPhotoUploadBusy(true)
+    setError(null)
+    try {
+      if (!isImageLikeFile(file)) throw new Error('La foto tiene que ser una imagen (JPG, PNG, WEBP).')
+      const sb = getSupabase()
+      await refreshSessionBeforeStorageUpload(sb)
+      const safeName = sanitizeStorageFileName(file.name)
+      const path = `${designModalProject.folio}/evidencias/armado/${crypto.randomUUID()}-${safeName}`
+      await uploadBodegaProyectosBinary(sb, BODEGA_PROYECTOS_BUCKET, path, file, guessImageContentType(file))
+      await replaceProjectArmadoPhotoRecord({
+        id: photo.id,
+        storagePath: path,
+        filename: file.name,
+        previousPath: photo.storage_path,
+      })
+      await insertProjectActivity({
+        projectId: designModalProject.id,
+        type: 'piece_photo_replaced',
+        payload: { filename: file.name, previous: photo.filename, armado_proyecto: true },
+      })
+      setBodegaNotice('Se cambió la foto del armado.')
+      await refreshModalProjectFromServer(designModalProject.id)
+      await loadProjectDeliveries(designModalProject.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se cambió la foto del armado')
+    } finally {
+      setPhotoUploadBusy(false)
+    }
+  }
+
+  async function removeArmadoPhoto(photo: ProjectPiecePhotoRow) {
+    if (!designModalProject || !canUploadPiecePhotos) return
+    setPhotoUploadBusy(true)
+    setError(null)
+    try {
+      await deleteProjectArmadoPhoto(photo)
+      await insertProjectActivity({
+        projectId: designModalProject.id,
+        type: 'piece_photo_removed',
+        payload: { filename: photo.filename, armado_proyecto: true },
+      })
+      setBodegaNotice('Se quitó la foto del armado.')
+      await refreshModalProjectFromServer(designModalProject.id)
+      await loadProjectDeliveries(designModalProject.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se quitó la foto del armado')
+    } finally {
+      setPhotoUploadBusy(false)
+    }
+  }
+
+  async function onSupervisorFinalizeProject(opts?: { sinFoto?: boolean; nota?: string }) {
     if (!designModalProject) return
     if (!canSupervisorFinalizeBodegaProject(props.role)) return
     setSupervisorFinalizeBusy(true)
     setError(null)
     try {
-      await finalizeProjectBySupervisor(designModalProject.id)
-      setBodegaNotice('Proyecto finalizado al 100%.')
-      await refreshModalProjectFromServer(designModalProject.id)
-      await loadProjectDeliveries(designModalProject.id)
+      const ocId = designModalProject.orden_compra_id
+      const othersOpen = rows.some((r) => r.orden_compra_id === ocId && r.id !== designModalProject.id)
+      await finalizeProjectBySupervisor(designModalProject.id, opts?.sinFoto === true, opts?.nota ?? '')
+      if (!othersOpen) limpiarFiltroOc()
+      closeDesignModal()
+      setBodegaNotice(
+        opts?.nota?.trim()
+          ? 'Proyecto finalizado. La nota quedó en el reporte.'
+          : 'Proyecto finalizado. Salió de Bodega y quedó en la nube.',
+      )
+      await load()
       props.onBodegaDeliveriesChanged?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo finalizar el proyecto')
@@ -1728,19 +1890,21 @@ export function BodegaPage(props: {
       /** En cada carga se intenta de nuevo por si ya aplicaron la migración en Supabase. */
       prioridadNivelColumnAvailableRef.current = true
       prioridadLegacyColumnAvailableRef.current = true
+      finalizedAtColumnAvailableRef.current = true
 
-      for (let prioridadPass = 0; prioridadPass < 4; prioridadPass++) {
+      for (let prioridadPass = 0; prioridadPass < 6; prioridadPass++) {
         const p = prioridadNivelColumnAvailableRef.current
           ? ', prioridad_nivel, prioridad'
           : prioridadLegacyColumnAvailableRef.current
             ? ', prioridad'
             : ''
+        const fin = finalizedAtColumnAvailableRef.current ? ', project_finalized_at' : ''
         const selectWithOcLine =
-          `id, folio, orden, orden_compra_id, cotizacion_linea_idx, cliente, empresa, nombre, status, avance_pct, fecha_inicio, fecha_termino${p}, created_at, updated_at`
+          `id, folio, orden, orden_compra_id, cotizacion_linea_idx, cliente, empresa, nombre, status, avance_pct, fecha_inicio, fecha_termino${p}, created_at, updated_at${fin}`
         const selectWithOc =
-          `id, folio, orden, orden_compra_id, cliente, empresa, nombre, status, avance_pct, fecha_inicio, fecha_termino${p}, created_at, updated_at`
+          `id, folio, orden, orden_compra_id, cliente, empresa, nombre, status, avance_pct, fecha_inicio, fecha_termino${p}, created_at, updated_at${fin}`
         const selectBase =
-          `id, folio, orden, cliente, empresa, nombre, status, avance_pct, fecha_inicio, fecha_termino${p}, created_at, updated_at`
+          `id, folio, orden, cliente, empresa, nombre, status, avance_pct, fecha_inicio, fecha_termino${p}, created_at, updated_at${fin}`
 
         cotizacionLineaIdxAvailableRef.current = true
         ordenCompraColumnAvailableRef.current = true
@@ -1754,6 +1918,10 @@ export function BodegaPage(props: {
           .filter(Boolean)
           .join(' ')
 
+        if (res.error && /project_finalized_at/i.test(msg) && /\bdoes not exist\b/i.test(msg)) {
+          finalizedAtColumnAvailableRef.current = false
+          continue
+        }
         if (res.error && /prioridad_nivel/i.test(msg) && /\bdoes not exist\b/i.test(msg)) {
           prioridadNivelColumnAvailableRef.current = false
           continue
@@ -1864,13 +2032,39 @@ export function BodegaPage(props: {
               (r as any).updated_at != null && String((r as any).updated_at).trim() !== ''
                 ? String((r as any).updated_at)
                 : null,
+            projectFinalizedAt:
+              finalizedAtColumnAvailableRef.current &&
+              (r as { project_finalized_at?: unknown }).project_finalized_at != null &&
+              String((r as { project_finalized_at?: unknown }).project_finalized_at).trim() !== ''
+                ? String((r as { project_finalized_at?: unknown }).project_finalized_at)
+                : null,
           }
         })
+
+      const active = mapped.filter((r) => !r.projectFinalizedAt)
+      const lineKeys = new Set<string>()
+      const byOc = new Map<string, { total: number; finalized: number }>()
+      for (const r of mapped) {
+        if (!r.orden_compra_id) continue
+        const g = byOc.get(r.orden_compra_id) ?? { total: 0, finalized: 0 }
+        g.total += 1
+        if (r.projectFinalizedAt) {
+          g.finalized += 1
+          if (r.cotizacion_linea_idx != null) lineKeys.add(`${r.orden_compra_id}:${r.cotizacion_linea_idx}`)
+        }
+        byOc.set(r.orden_compra_id, g)
+      }
+      const closedOcs = new Set<string>()
+      for (const [id, g] of byOc) {
+        if (g.total > 0 && g.finalized === g.total) closedOcs.add(id)
+      }
 
       setPrioridadDbAvailable(
         prioridadNivelColumnAvailableRef.current || prioridadLegacyColumnAvailableRef.current,
       )
-      setRows(mapped)
+      setArchivedLineKeys(lineKeys)
+      setArchivedOcIds(closedOcs)
+      setRows(active)
 
       try {
         const o = await fetchOrdenesCompra()
@@ -1881,7 +2075,7 @@ export function BodegaPage(props: {
         setOrdenesOk(false)
       }
 
-      return mapped
+      return active
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'No se pudo cargar Bodega'
       if (String(msg).toLowerCase().includes('relation') && String(msg).toLowerCase().includes('bodega_projects')) {
@@ -1890,6 +2084,8 @@ export function BodegaPage(props: {
         setError(msg)
       }
       setRows([])
+      setArchivedLineKeys(new Set())
+      setArchivedOcIds(new Set())
       setOrdenes([])
       return undefined
     } finally {
@@ -1976,14 +2172,15 @@ export function BodegaPage(props: {
 
   const filteredOrdenes = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return ordenes
     return ordenes.filter((o) => {
+      if (archivedOcIds.has(o.id)) return false
+      if (!s) return true
       const emp = o.empresa?.nombre ?? ''
       const req = o.requisitor?.nombre ?? ''
       const lines = (o.cotizacion_lineas ?? []).join(' ').toLowerCase()
       return `${o.numero} ${emp} ${req} ${o.archivo_nombre} ${lines}`.toLowerCase().includes(s)
     })
-  }, [ordenes, q])
+  }, [ordenes, q, archivedOcIds])
 
   const ordenById = useMemo(() => new Map(ordenes.map((o) => [o.id, o])), [ordenes])
 
@@ -2017,9 +2214,11 @@ export function BodegaPage(props: {
         const desc = o.cotizacion_lineas[i]
         if (!desc?.trim() || filterCotizacionLineas([desc]).length === 0) continue
         const lineNo = i + 1
-        const yaHayProyecto = rows.some(
-          (r) => r.orden_compra_id === o.id && r.cotizacion_linea_idx != null && r.cotizacion_linea_idx === lineNo,
-        )
+        const yaHayProyecto =
+          archivedLineKeys.has(`${o.id}:${lineNo}`) ||
+          rows.some(
+            (r) => r.orden_compra_id === o.id && r.cotizacion_linea_idx != null && r.cotizacion_linea_idx === lineNo,
+          )
         if (yaHayProyecto) continue
         const blob = `${o.numero} ${o.empresa?.nombre ?? ''} ${o.requisitor?.nombre ?? ''} ${desc}`.toLowerCase()
         if (s && !blob.includes(s)) continue
@@ -2047,7 +2246,7 @@ export function BodegaPage(props: {
       return 0
     })
     return out
-  }, [folder, ordenes, rows, q, statusFilter, filterOrdenCompraId, ordenById])
+  }, [folder, ordenes, rows, q, statusFilter, filterOrdenCompraId, ordenById, archivedLineKeys])
 
   const proyectoCombinedByEmpresa = useMemo(() => {
     if (folder !== 'proyecto')
@@ -3232,7 +3431,8 @@ export function BodegaPage(props: {
                     role={props.role}
                     projectId={designModalProject.id}
                     projectFolio={designModalProject.folio}
-                    pieces={projectPieces}
+                    pieces={xtScopedPieces}
+                    designVersion={programmingXtVersion}
                     designZipPaths={designZipPaths}
                     activeModule={cncModuleTab === 'torno' ? 'torno' : 'programacion'}
                     onModuleChange={(m) => setCncModuleTab(m)}
@@ -3297,7 +3497,7 @@ export function BodegaPage(props: {
                   projectId={designModalProject.id}
                   projectFolio={designModalProject.folio}
                   projectStatus={designModalProject.status}
-                  pieces={projectPieces}
+                  pieces={xtScopedPieces}
                   flowMeta={pieceFlowMeta}
                   piecePhotosCount={piecePhotos.length}
                   photos={piecePhotos}
@@ -3336,6 +3536,10 @@ export function BodegaPage(props: {
                   onUploadDesign={(submit) => void uploadDesignZip(submit)}
                   onDownload={(v) => void downloadDesignZip(v)}
                   formatDateTime={(d) => formatDateTimeEs(d)}
+                  canManageEntregas={canUploadDesign}
+                  entregaActionBusy={entregaActionBusy}
+                  onWithdrawEntrega={(v) => void withdrawEntrega(v)}
+                  onChooseEntrega={(v) => void chooseEntrega(v)}
                   destinosComplete={programmingRoutesLocked}
                   showPlanosStep={
                     projectPieces.some(
@@ -3385,19 +3589,19 @@ export function BodegaPage(props: {
                         designZipPathsLoading={designZipPathsLoading}
                         confirmedFolderKeys={confirmedFolderKeysForPanel}
                         confirmBusy={designReviewBusy}
-                        pieces={projectPieces}
+                        pieces={xtScopedPieces}
                         onDownloadZip={(v) => void downloadDesignZip(v)}
                         onConfirmFolders={(args) => void confirmDesignFoldersForProject(args)}
                       />
                     ) : null
                   }
                   destinosPanel={
-                    destinosDesignPaths.length > 0 || projectPieces.length > 0 ? (
+                    destinosDesignPaths.length > 0 ? (
                       <BodegaDisenoDestinosPanel
                         role={props.role}
                         projectId={designModalProject.id}
                         projectFolio={designModalProject.folio}
-                        pieces={projectPieces}
+                        pieces={xtScopedPieces}
                         designPaths={destinosDesignPaths}
                         routesLocked={programmingRoutesLocked}
                         designConfirmed={
@@ -3409,6 +3613,17 @@ export function BodegaPage(props: {
                           await loadProjectDeliveries(designModalProject.id)
                           await refreshModalProjectFromServer(designModalProject.id)
                         }}
+                        sentToPhoto={designModalProject.status === 'en_foto'}
+                        onSentToPhoto={async () => {
+                          const pid = designModalProject.id
+                          setDesignModalProject((prev) => (prev ? { ...prev, status: 'en_foto' } : prev))
+                          setDeliveryTab('fotos')
+                          await refreshModalProjectFromServer(pid)
+                          await loadProjectDeliveries(pid)
+                          setBodegaNotice(
+                            'El proyecto pasó a la foto. No va a programación ni a taller. El encargado o el admin lo finalizan con foto o sin foto.',
+                          )
+                        }}
                         onConfirmed={() => void onDesignDestinosConfirmed()}
                       />
                     ) : null
@@ -3418,7 +3633,7 @@ export function BodegaPage(props: {
                       embedded
                       role={props.role}
                       projectFolio={designModalProject.folio}
-                      pieces={projectPieces}
+                      pieces={xtScopedPieces}
                       designZipPaths={effectiveDesignZipPaths}
                       designEntregaVersions={approvedDesignEntregaVersionsList}
                       onReload={async () => {
@@ -3479,7 +3694,7 @@ export function BodegaPage(props: {
                         diseñadora dirige cada pieza a CNC, torno o perfiladora. Torno y perfiladora salen sin tiempo,
                         igual que los accesorios. Cuando confirme, aquí solo verás CNC para programar.
                       </div>
-                    ) : piecesForCncModule(projectPieces, 'programacion').length === 0 ? (
+                    ) : piecesForCncModule(xtScopedPieces, 'programacion').length === 0 ? (
                       <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-[13px] leading-relaxed text-slate-700">
                         Destinos confirmados. Este proyecto no tiene piezas CNC: torno, perfiladora y accesorios ya
                         salieron sin tiempo de programación.
@@ -3495,7 +3710,8 @@ export function BodegaPage(props: {
                         role={props.role}
                         projectId={designModalProject.id}
                         projectFolio={designModalProject.folio}
-                        pieces={projectPieces}
+                        pieces={xtScopedPieces}
+                        designVersion={programmingXtVersion}
                         designZipPaths={effectiveDesignZipPaths}
                         activeModule={cncModuleTab === 'torno' ? 'torno' : 'programacion'}
                         onModuleChange={(m) => setCncModuleTab(m)}
@@ -3554,6 +3770,7 @@ export function BodegaPage(props: {
                     pieceIntervals={pieceIntervals}
                   />
                   {programmingRoutesLocked &&
+                  designModalProject.status !== 'en_foto' &&
                   (canUploadBodegaMachine(props.role) || canManageBodegaLikeAdmin(props.role)) ? (
                     <BodegaOperatorMaquinadoWorkspace
                       rows={maquinadoQueue}
@@ -3564,8 +3781,9 @@ export function BodegaPage(props: {
                     />
                   ) : (
                     <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-[14px] text-amber-950">
-                      Confirma los destinos en la pestaña <strong>Diseño</strong> (CNC / torno / perfiladora). Solo las
-                      piezas CNC llegan a maquinado cuando el archivo de programación está listo.
+                      {designModalProject.status === 'en_foto'
+                        ? 'Este proyecto no se hace en el taller. Pasó a la foto. Maquinado no recibe estas piezas.'
+                        : 'Confirma los destinos en la pestaña Diseño (CNC / torno / perfiladora). Solo las piezas CNC llegan a maquinado cuando el archivo de programación está listo.'}
                     </section>
                   )}
                 </div>
@@ -3581,10 +3799,18 @@ export function BodegaPage(props: {
                     workIntervals={workIntervals}
                     pieceIntervals={pieceIntervals}
                   />
-                  {canAccessTallerOperadorNav(props.role) || isBodegaSupervisorFull ? (
+                  {designModalProject.status === 'en_foto' ? (
+                    <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-[14px] leading-relaxed text-amber-950">
+                      Este proyecto no se hace en el taller. Pasó a la foto. Perfilado, detallado y armado no reciben estas piezas.
+                    </section>
+                  ) : canAccessTallerOperadorNav(props.role) || isBodegaSupervisorFull ? (
                     <BodegaProjectTallerWorkspace
                       projectId={designModalProject.id}
                       projectFolio={designModalProject.folio}
+                      onActivity={async () => {
+                        const iv = await fetchWorkIntervals(designModalProject.id)
+                        setWorkIntervals(iv)
+                      }}
                     />
                   ) : (
                     <section className="rounded-2xl border border-teal-200 bg-teal-50 px-5 py-6 text-[14px] text-teal-950">
@@ -3600,12 +3826,16 @@ export function BodegaPage(props: {
                     tab="fotos"
                     times={projectDeliveryTimes}
                     loading={designLoading}
-                    detail="Las fotos de cierre no tienen reloj propio; revisa el total del proyecto en Piezas o en el resumen de cierre."
+                    detail={
+                      designModalProject.status === 'en_foto'
+                        ? 'El diseño ya se entregó. El proyecto espera aquí hasta que el encargado o el admin lo finalicen.'
+                        : 'La foto se sube cuando ya se cerró el tiempo de armado del proyecto.'
+                    }
                     workIntervals={workIntervals}
                     pieceIntervals={pieceIntervals}
                   />
                   <BodegaProjectPiecePhotosWorkspace
-                    pieces={projectPieces}
+                    pieces={xtScopedPieces}
                     photos={piecePhotos}
                     loading={designLoading}
                     canUpload={canUploadPiecePhotos && !pieceFlowMeta?.project_finalized_at}
@@ -3616,6 +3846,15 @@ export function BodegaPage(props: {
                     finalizeBusy={supervisorFinalizeBusy}
                     onUpload={uploadPiecePhotosForPiece}
                     onBatchUpload={uploadPiecePhotosForPieces}
+                    onUploadArmado={uploadArmadoPhoto}
+                    onReplaceArmado={replaceArmadoPhoto}
+                    onRemoveArmado={removeArmadoPhoto}
+                    armadoCerrado={
+                      projectArmadoClockClosed(workIntervals) ||
+                      (xtScopedPieces.length > 0 &&
+                        xtScopedPieces.every((piece) => piece.armado_completed_at != null))
+                    }
+                    cierreExterno={designModalProject.status === 'en_foto'}
                     onFinalize={onSupervisorFinalizeProject}
                   />
 
@@ -3623,10 +3862,8 @@ export function BodegaPage(props: {
                     <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white p-5 shadow-sm ring-1 ring-slate-900/[0.04] sm:p-6">
                       <p className="text-[15px] font-bold text-section-navy">Programadora — solicitar revisión</p>
                       <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-slate-700">
-                        Cuando <strong>todas</strong> las piezas estén listas para foto (CNC con detallado; torno,
-                        perfilado y accesorios al asignarlos en diseño) puedes solicitar cierre (
-                        {projectClosureProgress.detalladoDone}/{projectClosureProgress.totalPieces} listas). El
-                        supervisor finaliza arriba cuando cada pieza tenga foto.
+                        El cierre es la foto del armado, después de terminar el tiempo en Taller → Armado. El encargado
+                        finaliza el proyecto al subir esa foto.
                       </p>
                       <button
                         type="button"
@@ -3640,7 +3877,7 @@ export function BodegaPage(props: {
                         }
                         title={
                           !canProgramadoraSolicitarCierre(projectPieces)
-                            ? `Faltan ${projectClosureProgress.totalPieces - projectClosureProgress.detalladoDone} pieza(s) por completar (CNC en taller)`
+                            ? `Faltan ${projectClosureProgress.totalPieces - projectClosureProgress.detalladoDone} pieza(s) que siguen en taller`
                             : undefined
                         }
                         className="mt-5 min-h-[48px] rounded-xl bg-section-navy px-6 py-3 text-[14px] font-bold text-white shadow-md transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
@@ -3789,6 +4026,7 @@ export function BodegaPage(props: {
                   <option value="diseno_aprobado">Diseño aprobado</option>
                   <option value="en_programacion">En programación</option>
                   <option value="revision_programacion">Revisión programación</option>
+                  <option value="en_foto">En foto</option>
                   <option value="terminado">Terminado</option>
                 </select>
               ) : folder === 'orden' ? (

@@ -125,8 +125,8 @@ export function weeklyPlanSummaryText(bundle: BodegaWeeklyPlanBundle, weekStart:
   return [
     `Plan de trabajo — ${formatWeekRangeEs(weekStart)}`,
     `Proyectos en plan: ${bundle.items.length} (${bundle.weekSummary.itemsActive} activos, ${bundle.weekSummary.itemsCompleted} finalizados)`,
-    `Meta semanal (activos): ${bundle.weekSummary.plannedOverallPct}%`,
-    `Avance real (activos): ${bundle.weekSummary.actualOverallPct}%`,
+    `Meta semanal: ${bundle.weekSummary.plannedOverallPct}%`,
+    `Avance real (todos los renglones): ${bundle.weekSummary.actualOverallPct}%`,
     `Con atraso: ${bundle.weekSummary.itemsBehind}`,
     `Sin motivo de atraso: ${bundle.weekSummary.itemsWithoutDelayReason}`,
     `Etapas: ${stageLines}`,

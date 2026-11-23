@@ -18,6 +18,7 @@ import { BodegaMaquinadoPage } from './features/bodega/BodegaMaquinadoPage.tsx'
 import { BodegaOperatorQueuesPage } from './features/bodega/BodegaOperatorQueuesPage.tsx'
 import { BodegaPlanTrabajoPage } from './features/bodega/BodegaPlanTrabajoPage.tsx'
 import { BodegaProduccionSemanalPage } from './features/bodega/BodegaProduccionSemanalPage.tsx'
+import { FacturasCreditoPage } from './features/facturas/FacturasCreditoPage.tsx'
 import { BodegaHistoricoPage } from './features/bodega/BodegaHistoricoPage.tsx'
 import { DesktopUpdateBanner } from './ui/DesktopUpdateBanner.tsx'
 import { TopBar } from './ui/TopBar.tsx'
@@ -39,6 +40,7 @@ import {
   IconNavPrioridades,
   IconNavPlanTrabajo,
   IconNavProduccion,
+  IconNavFacturas,
   IconNavReportes,
   IconNavUsuarios,
 } from './ui/shellIcons.tsx'
@@ -54,6 +56,7 @@ import {
   canAccessBodegaArchivosDisenoNav,
   canAccessBodegaPrioridadesNav,
   canAccessProduccionNav,
+  canAccessFacturasCreditoNav,
   canAccessBodegaReportesNav,
   canAccessHistoricoNav,
   canAccessInventory,
@@ -82,6 +85,7 @@ type AppMainView =
   | 'prioridades'
   | 'plan_trabajo'
   | 'produccion_semanal'
+  | 'facturas_credito'
   | 'reportes'
   | 'nube'
   | 'historico'
@@ -101,6 +105,7 @@ const APP_MAIN_VIEWS: readonly AppMainView[] = [
   'prioridades',
   'plan_trabajo',
   'produccion_semanal',
+  'facturas_credito',
   'reportes',
   'nube',
   'historico',
@@ -183,6 +188,8 @@ function isMainViewAllowed(v: AppMainView, role: AppRole): boolean {
     case 'plan_trabajo':
     case 'produccion_semanal':
       return canAccessProduccionNav(role)
+    case 'facturas_credito':
+      return canAccessFacturasCreditoNav(role)
     case 'reportes':
       return canAccessBodegaReportesNav(role)
     case 'historico':
@@ -401,6 +408,17 @@ function App() {
       )
     }
     if (view === 'plan_trabajo' && !canAccessProduccionNav(role)) {
+      setView(
+        canAccessAdminTools(role)
+          ? 'inicio'
+          : canAccessInventory(role)
+            ? 'inventario'
+            : canAccessBodega(role)
+              ? 'bodega'
+              : 'inventario',
+      )
+    }
+    if (view === 'facturas_credito' && !canAccessFacturasCreditoNav(role)) {
       setView(
         canAccessAdminTools(role)
           ? 'inicio'
@@ -646,6 +664,16 @@ function App() {
             hint: 'Seguimiento semanal de producción',
             icon: <IconNavProduccion className="h-[17px] w-[17px] shrink-0" />,
           },
+          ...(canAccessFacturasCreditoNav(role)
+            ? [
+                {
+                  view: 'facturas_credito' as const,
+                  label: 'Facturas crédito',
+                  hint: 'Por vencer y vencidas',
+                  icon: <IconNavFacturas className="h-[17px] w-[17px] shrink-0" />,
+                },
+              ]
+            : []),
         ],
       })
     }
@@ -799,6 +827,7 @@ function App() {
                   view === 'prioridades' ||
                   view === 'plan_trabajo' ||
                   view === 'produccion_semanal' ||
+                  view === 'facturas_credito' ||
                   view === 'reportes' ||
                   view === 'nube' ||
                   view === 'inventario'
@@ -913,6 +942,8 @@ function App() {
                 />
               ) : view === 'produccion_semanal' && canAccessProduccionNav(role) ? (
                 <BodegaProduccionSemanalPage role={role} />
+              ) : view === 'facturas_credito' && canAccessFacturasCreditoNav(role) ? (
+                <FacturasCreditoPage role={role} />
               ) : view === 'reportes' && canAccessBodegaReportesNav(role) ? (
                 <BodegaReportesPage role={role} />
               ) : view === 'nube' && canAccessBodega(role) ? (

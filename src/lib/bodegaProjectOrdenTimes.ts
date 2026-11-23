@@ -62,22 +62,19 @@ function sumWorkWallMinutes(
   return programmingElapsedSeconds(rows, [], now, lanes, []) / 60
 }
 
-/** Segundos hábiles de programación (oficina + piezas), lun–vie 8:00–17:30. */
+/**
+ * Segundos hábiles de programación, lun–vie 8:00–17:30.
+ * Solo cuenta el reloj de cada pieza: Inicio y Fin al subir el archivo.
+ * El reloj de proyecto que arrancaba al entrar no entra en el total.
+ */
 export function programmingBusinessSeconds(
   workIntervals: BodegaWorkIntervalRow[],
   pieceIntervals: BodegaPieceIntervalRow[],
   now: Date,
 ): number {
-  const workSet = new Set<string>(WORK_PROGRAMACION_LANES)
+  void workIntervals
   const pieceSet = new Set<string>(PIECE_PROGRAMACION_LANES)
   let s = 0
-  for (const r of workIntervals) {
-    if (!workSet.has(r.lane)) continue
-    const start = intervalDate(r.started_at)
-    if (!start) continue
-    const end = r.ended_at ? intervalDate(r.ended_at) ?? now : now
-    s += businessSecondsBetween(start, end)
-  }
   for (const r of pieceIntervals) {
     if (!pieceSet.has(r.lane)) continue
     const start = intervalDate(r.started_at)

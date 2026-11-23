@@ -18,6 +18,11 @@ import {
 import { getSupabase } from './supabaseClient'
 import { isXtDesignFile, parseXtFile } from './xtParasolidPieces'
 import { notifyProgrammersDesignXtUploaded } from './notifyBodegaDesignXt'
+import {
+  fetchLatestProjectProveedor,
+  isExternalBodegaProveedor,
+  tryFinalizeExternalProviderProject,
+} from './bodegaExternalProvider'
 
 /** Campos mínimos del proyecto para registrar una versión de diseño. */
 export type BodegaDesignUploadProject = {
@@ -53,7 +58,7 @@ export async function runDesignZipUpload(args: {
    * no se registran ni llegan al encargado. Sin esta lista se entrega el ensamble completo.
    */
   keepPieceNames?: string[]
-}): Promise<void> {
+}): Promise<boolean> {
   const { project, file, comment, existingDesignVersions, uploaderRole, onPhase, uploadOrigin, packageCategory } = args
   const cat: DesignPackageCategory = packageCategory ?? 'entrega_diseno'
   const phase = (p: string) => {
@@ -126,7 +131,7 @@ export async function runDesignZipUpload(args: {
   )
 
   phase('Guardando versión…')
-  await registerDesignZipVersionForProject({
+  return registerDesignZipVersionForProject({
     project,
     analysis,
     storagePath: path,
@@ -156,7 +161,7 @@ async function registerDesignZipVersionForProject(args: {
   supersedePending?: boolean
   /** Piezas que la diseñadora quitó antes de entregar (queda en el historial del proyecto). */
   removedPieceCount?: number
-}): Promise<void> {
+}): Promise<boolean> {
   const { project, analysis, storagePath, zipFilename, comment, packageCategory: cat, uploaderRole, uploadOrigin, existingDesignVersions } =
     args
   const nextV = args.version ?? (await fetchNextDesignVersionNumber(project.id, cat))
@@ -205,17 +210,16 @@ async function registerDesignZipVersionForProject(args: {
     },
   })
 
-  if (cat === 'entrega_diseno' && analysis.manifest.kind === 'xt') {
-    await notifyProgrammersDesignXtUploaded({
-      projectId: project.id,
-      filename: zipFilename,
-      pieceCount: analysis.manifest.pieceNames?.length ?? analysis.manifest.entryPaths?.length ?? 0,
-    })
-  }
-
   const st = project.status
+  const finalizedRow = await getSupabase()
+    .from('bodega_projects')
+    .select('project_finalized_at')
+    .eq('id', project.id)
+    .maybeSingle()
+  const yaFinalizado = Boolean(finalizedRow.data?.project_finalized_at)
   // Nueva entrega formal aunque el proyecto ya estuviera en diseno_aprobado / programación.
   const shouldMoveToRevisionDiseno =
+    !yaFinalizado &&
     cat === 'entrega_diseno' &&
     st !== 'revision_diseno' &&
     st !== 'terminado' &&
@@ -227,13 +231,28 @@ async function registerDesignZipVersionForProject(args: {
       st === 'en_programacion' ||
       st === 'revision_programacion')
 
-  if (shouldMoveToRevisionDiseno) {
+  const externalProvider =
+    cat === 'entrega_diseno' &&
+    isExternalBodegaProveedor(await fetchLatestProjectProveedor(project.id))
+
+  if (shouldMoveToRevisionDiseno && !externalProvider) {
     await supervisorSetProjectStatus({
       projectId: project.id,
       status: 'revision_diseno',
       comment: 'En revisión (entrega de diseño subida)',
     })
   }
+
+  if (cat !== 'entrega_diseno') return false
+  const externalFinalized = await tryFinalizeExternalProviderProject(project.id)
+  if (analysis.manifest.kind === 'xt' && !externalFinalized && !yaFinalizado) {
+    await notifyProgrammersDesignXtUploaded({
+      projectId: project.id,
+      filename: zipFilename,
+      pieceCount: analysis.manifest.pieceNames?.length ?? analysis.manifest.entryPaths?.length ?? 0,
+    })
+  }
+  return externalFinalized
 }
 
 export type OcDesignZipBulkUploadResult = {

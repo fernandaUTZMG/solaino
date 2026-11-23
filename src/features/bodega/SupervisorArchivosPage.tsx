@@ -53,6 +53,7 @@ function statusLabelEs(s: string): string {
     diseno_aprobado: 'Diseño aprobado',
     en_programacion: 'En programación',
     revision_programacion: 'Revisión programación',
+    en_foto: 'En foto',
     terminado: 'Terminado',
   }
   return m[s] ?? s
@@ -70,6 +71,7 @@ function statusPillClass(status: string): string {
       return 'bg-sky-100 text-sky-900 ring-sky-200/70'
     case 'en_programacion':
     case 'revision_programacion':
+    case 'en_foto':
       return 'bg-amber-100 text-amber-950 ring-amber-200/70'
     case 'pendiente':
       return 'bg-slate-100 text-slate-800 ring-slate-200/80'

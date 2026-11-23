@@ -78,7 +78,7 @@ export function BodegaPieceLaneBatchControls(props: Props) {
   }
 
   async function onBatchFinishPerfilado(outcome: PerfiladoCompletionOutcome) {
-    if (finishEligible.length === 0) return
+    if (props.pieces.length === 0) return
     setLocalBusy(true)
     setNotice(null)
     try {

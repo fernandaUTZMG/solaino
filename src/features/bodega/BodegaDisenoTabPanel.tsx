@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ProjectDesignVersionRow } from '../../lib/designVersionsRepo'
+import { isLiveDesignEntregaStatus, type ProjectDesignVersionRow } from '../../lib/designVersionsRepo'
+import { xtAssemblyFamilyKey } from '../../lib/designZipScope'
+import { isXtDesignVersion } from '../../lib/xtDesignManifest'
 import { isXtDesignFile, parseXtFile, type XtParseResult } from '../../lib/xtParasolidPieces'
 import { matchPlanoPdfToPieceName } from '../../lib/designPlanoNaming'
 import {
@@ -38,6 +40,11 @@ type Props = {
   onUploadDesign: (submit: DesignEntregaSubmit) => void
   onDownload: (v: ProjectDesignVersionRow) => void
   formatDateTime: (d: Date) => string
+  /** Diseñadora, encargado o admin: quitar un .x_t de más o elegir cuál se revisa. */
+  canManageEntregas?: boolean
+  entregaActionBusy?: boolean
+  onWithdrawEntrega?: (v: ProjectDesignVersionRow) => void
+  onChooseEntrega?: (v: ProjectDesignVersionRow) => void
 }
 
 type XtQueueItem = { file: File; result: XtParseResult; elapsedMs: number }
@@ -81,7 +88,12 @@ function StepHeader(props: { n: number; title: string; subtitle: string }) {
 function VersionRow(props: {
   v: ProjectDesignVersionRow
   badge?: string
+  active?: boolean
+  canManage?: boolean
+  busy?: boolean
   onDownload: (v: ProjectDesignVersionRow) => void
+  onWithdraw?: (v: ProjectDesignVersionRow) => void
+  onChoose?: (v: ProjectDesignVersionRow) => void
   formatDateTime: (d: Date) => string
 }) {
   const { v } = props
@@ -103,6 +115,11 @@ function VersionRow(props: {
           >
             {statusShort(v.status, v.comentarios)}
           </span>
+          {props.active ? (
+            <span className="rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-950">
+              Se revisa y separa
+            </span>
+          ) : null}
         </div>
         <p className="mt-1 truncate text-[14px] font-semibold text-slate-900" title={v.zip_filename}>
           {v.zip_filename}
@@ -112,15 +129,55 @@ function VersionRow(props: {
           {v.comentarios?.trim() ? ` · ${v.comentarios.trim()}` : ''}
         </p>
       </div>
-      <button
-        type="button"
-        className={`shrink-0 ${disenoGhostBtn}`}
-        onClick={() => props.onDownload(v)}
-      >
-        {xt ? 'Descargar .x_t' : 'Descargar ZIP'}
-      </button>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        {props.canManage && props.onChoose && !props.active && isLiveDesignEntregaStatus(v.status) ? (
+          <button
+            type="button"
+            disabled={props.busy}
+            className={`shrink-0 ${disenoAccentBtn}`}
+            onClick={() => props.onChoose?.(v)}
+          >
+            Usar esta
+          </button>
+        ) : null}
+        {props.canManage && props.onWithdraw && isLiveDesignEntregaStatus(v.status) ? (
+          <button
+            type="button"
+            disabled={props.busy}
+            className="shrink-0 min-h-[40px] rounded-xl border border-rose-200 bg-white px-3 py-2 text-[13px] font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+            onClick={() => props.onWithdraw?.(v)}
+          >
+            Quitar
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={`shrink-0 ${disenoGhostBtn}`}
+          onClick={() => props.onDownload(v)}
+        >
+          {xt ? 'Descargar .x_t' : 'Descargar ZIP'}
+        </button>
+      </div>
     </li>
   )
+}
+
+function activeEntregaIds(versions: ProjectDesignVersionRow[]): Set<string> {
+  const live = versions.filter((v) => isXtDesignVersion(v) && isLiveDesignEntregaStatus(v.status))
+  const byFamily = new Map<string, ProjectDesignVersionRow[]>()
+  for (const v of live) {
+    const key = xtAssemblyFamilyKey(v.zip_filename)
+    const list = byFamily.get(key) ?? []
+    list.push(v)
+    byFamily.set(key, list)
+  }
+  const ids = new Set<string>()
+  for (const group of byFamily.values()) {
+    const pending = group.filter((v) => v.status === 'en_revision').sort((a, b) => a.version - b.version)
+    const chosen = pending[0] ?? [...group].sort((a, b) => b.version - a.version)[0]
+    if (chosen) ids.add(chosen.id)
+  }
+  return ids
 }
 
 export function BodegaDisenoTabPanel(props: Props) {
@@ -135,6 +192,8 @@ export function BodegaDisenoTabPanel(props: Props) {
   const latestEntregaId = latestEntrega?.id
 
   const pendingEntregaCount = props.designEntregaVersions.filter((v) => v.status === 'en_revision').length
+  const liveEntregaCount = props.designEntregaVersions.filter((v) => isLiveDesignEntregaStatus(v.status)).length
+  const activeIds = useMemo(() => activeEntregaIds(props.designEntregaVersions), [props.designEntregaVersions])
 
   useEffect(() => {
     setXtItems([])
@@ -562,10 +621,12 @@ export function BodegaDisenoTabPanel(props: Props) {
                   ))}
                 </div>
 
-                {props.canUploadDesign && pendingEntregaCount > 0 ? (
+                {props.canUploadDesign && liveEntregaCount > 0 ? (
                   <fieldset className="rounded-xl border border-amber-300 bg-amber-50 p-3 sm:p-4">
                     <legend className="px-1 text-[12px] font-bold text-amber-950">
-                      El encargado tiene {pendingEntregaCount} entrega(s) sin confirmar
+                      {pendingEntregaCount > 0
+                        ? `El encargado tiene ${pendingEntregaCount} entrega(s) sin confirmar`
+                        : 'Ya hay una entrega de este ensamble'}
                     </legend>
                     <label className="flex cursor-pointer items-start gap-2.5 text-[13px] text-amber-950">
                       <input
@@ -591,8 +652,8 @@ export function BodegaDisenoTabPanel(props: Props) {
                         onChange={() => setEntregaMode('corregir')}
                       />
                       <span>
-                        <strong>Corrige</strong> — esto reemplaza lo que entregué antes. Las entregas pendientes quedan
-                        marcadas como reemplazadas.
+                        <strong>Corrige</strong> — esto reemplaza la revisión anterior del mismo ensamble. Las piezas que
+                        ya existen se conservan; no se duplican.
                       </span>
                     </label>
                   </fieldset>
@@ -652,13 +713,22 @@ export function BodegaDisenoTabPanel(props: Props) {
           ) : (
             <div>
               <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">Historial de entregas</p>
+              <p className="mb-2 text-[12px] leading-snug text-slate-600">
+                Si el mismo ensamble se subió dos veces, quita el que sobra o pulsa <strong>Usar esta</strong> en el
+                archivo correcto. Una corrección no vuelve a crear las piezas del primero.
+              </p>
               <ul className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
                 {props.designEntregaVersions.map((v) => (
                   <VersionRow
                     key={v.id}
                     v={v}
                     badge={`V${v.version}`}
+                    active={activeIds.has(v.id)}
+                    canManage={props.canManageEntregas}
+                    busy={props.entregaActionBusy}
                     onDownload={props.onDownload}
+                    onWithdraw={props.onWithdrawEntrega}
+                    onChoose={props.onChooseEntrega}
                     formatDateTime={props.formatDateTime}
                   />
                 ))}

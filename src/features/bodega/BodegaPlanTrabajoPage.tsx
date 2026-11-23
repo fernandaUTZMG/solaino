@@ -10,6 +10,7 @@ import {
   WEEKLY_PLAN_STAGES,
   weeklyPlanStageLabelEs,
 } from '../../lib/bodegaWeeklyPlanProgress'
+import { otherWorkshopPlanNote } from '../../lib/bodegaExternalProvider'
 import { prioridadRowHighlightClass } from '../../lib/bodegaProjectPrioridad'
 import {
   currentWeekMondayKey,
@@ -42,7 +43,7 @@ type Props = {
   onOpenProject?: (projectId: string) => void
 }
 
-type DeliveryPatch = Pick<WeeklyPlanItemInput, 'fecha_entrega' | 'factura'>
+type DeliveryPatch = Pick<WeeklyPlanItemInput, 'fecha_entrega' | 'factura' | 'proveedor'>
 
 function planItemStatusLabel(it: BodegaWeeklyPlanItemEnriched): string {
   if (it.projectStatus) return weeklyPlanStatusLabelFromProject(it.projectStatus)
@@ -342,6 +343,51 @@ function PlanEntregaFacturaCells(props: {
   )
 }
 
+function PlanProveedorCell(props: {
+  value: string
+  canManage: boolean
+  disabled: boolean
+  onSave: (proveedor: string) => Promise<void>
+}) {
+  const [proveedor, setProveedor] = useState(props.value)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setProveedor(props.value)
+  }, [props.value])
+
+  async function save() {
+    const next = proveedor.trim()
+    if (next === props.value.trim()) return
+    setSaving(true)
+    try {
+      await props.onSave(next)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!props.canManage) {
+    return <span className="text-[12px] text-slate-800">{props.value.trim() || '—'}</span>
+  }
+
+  return (
+    <input
+      type="text"
+      aria-label="Proveedor"
+      placeholder="Solaino u otra empresa"
+      className="w-full min-w-[8.5rem] rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-400/40 disabled:opacity-60"
+      value={proveedor}
+      disabled={props.disabled || saving}
+      onChange={(e) => setProveedor(e.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+      }}
+    />
+  )
+}
+
 function PlanTableRow(props: {
   it: BodegaWeeklyPlanItemEnriched
   rowIndex: number
@@ -358,6 +404,7 @@ function PlanTableRow(props: {
   const { it } = props
   const behind = it.lagStages.length > 0
   const done = it.projectTerminado
+  const otherShop = it.externalShop ? otherWorkshopPlanNote(it.proveedor) : null
   return (
     <tr
       className={[
@@ -384,19 +431,40 @@ function PlanTableRow(props: {
         <p className="font-semibold text-slate-900">{it.proyecto_nombre}</p>
         {it.projectFolio ? <p className="font-mono text-[10px] text-slate-500">{it.projectFolio}</p> : null}
         {done ? (
-          <p className="mt-1 text-[10px] font-semibold text-emerald-800">Plan semanal cumplido (proyecto entregado)</p>
+          <p className="mt-1 text-[10px] font-semibold text-emerald-800">
+            Plan semanal cumplido (proyecto entregado)
+          </p>
+        ) : otherShop ? (
+          <p className="mt-1 text-[10px] font-semibold leading-snug text-amber-800">
+            {otherShop.place} {otherShop.close}
+          </p>
         ) : null}
       </td>
-      {WEEKLY_PLAN_STAGES.map((stage) => (
-        <td key={stage} className="px-1 py-2">
-          <StageCell
-            planned={it[`plan_${stage}_pct` as const]}
-            actual={it.actual[stage]}
-            lag={it.lagStages.includes(stage)}
-            completed={done}
-          />
+      <td className="px-2 py-2">
+        <PlanProveedorCell
+          value={it.proveedor}
+          canManage={props.canManage}
+          disabled={props.busy}
+          onSave={(proveedor) => props.onSaveDelivery({ proveedor })}
+        />
+      </td>
+      {otherShop ? (
+        <td colSpan={4} className="px-2 py-2 align-middle">
+          <p className="text-[12px] font-bold leading-snug text-amber-950">{otherShop.place}</p>
+          <p className="mt-0.5 text-[11px] font-semibold leading-snug text-amber-900">{otherShop.close}</p>
         </td>
-      ))}
+      ) : (
+        WEEKLY_PLAN_STAGES.map((stage) => (
+          <td key={stage} className="px-1 py-2">
+            <StageCell
+              planned={it[`plan_${stage}_pct` as const]}
+              actual={it.actual[stage]}
+              lag={it.lagStages.includes(stage)}
+              completed={done}
+            />
+          </td>
+        ))
+      )}
       <PlanEntregaFacturaCells
         it={it}
         canManage={props.canManage}
@@ -464,6 +532,7 @@ function EditItemModal(props: {
     po_numero: props.item.po_numero,
     po_fecha: props.item.po_fecha ?? '',
     proyecto_nombre: props.item.proyecto_nombre,
+    proveedor: props.item.proveedor,
     plan_diseno_pct: props.item.plan_diseno_pct,
     plan_programacion_pct: props.item.plan_programacion_pct,
     plan_maquinado_pct: props.item.plan_maquinado_pct,
@@ -525,6 +594,18 @@ function EditItemModal(props: {
               value={form.proyecto_nombre}
               onChange={(e) => setForm((f) => ({ ...f, proyecto_nombre: e.target.value }))}
             />
+          </label>
+          <label className="block text-[11px] font-semibold text-slate-700 sm:col-span-2">
+            Proveedor
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[13px]"
+              placeholder="Solaino u otra empresa"
+              value={form.proveedor}
+              onChange={(e) => setForm((f) => ({ ...f, proveedor: e.target.value }))}
+            />
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              Vacío o Solaino sigue en este taller. Otro nombre pasa el proyecto a la foto al terminar el diseño.
+            </p>
           </label>
           <label className="block text-[11px] font-semibold text-slate-700">
             Cliente
@@ -622,6 +703,7 @@ function EditItemModal(props: {
                 po_fecha: form.po_fecha || null,
                 fecha_entrega: form.fecha_entrega || null,
                 factura: form.factura.trim(),
+                proveedor: form.proveedor.trim(),
               })
             }
           >
@@ -703,7 +785,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
   const canManage = canManageBodegaWeeklyPlan(props.role)
   const canExport = canExportBodegaWeeklyPlan(props.role)
   /** # + prioridad + 4 datos + 4 etapas + fecha + status + [factura] + atraso + acciones */
-  const planTableColSpan = canManage ? 15 : 14
+  const planTableColSpan = canManage ? 16 : 15
   const [weekStart, setWeekStart] = useState(() => currentWeekMondayKey())
   const [bundle, setBundle] = useState<BodegaWeeklyPlanBundle | null>(null)
   const [loading, setLoading] = useState(true)
@@ -796,7 +878,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
     const s = q.trim().toLowerCase()
     if (!s) return bundle.items
     return bundle.items.filter((it) => {
-      const hay = `${it.proyecto_nombre} ${it.cliente} ${it.po_numero} ${it.projectFolio ?? ''}`.toLowerCase()
+      const hay = `${it.proyecto_nombre} ${it.proveedor} ${it.cliente} ${it.po_numero} ${it.projectFolio ?? ''}`.toLowerCase()
       return hay.includes(s)
     })
   }, [bundle, q])
@@ -875,8 +957,13 @@ export function BodegaPlanTrabajoPage(props: Props) {
     setError(null)
     setBusy(true)
     try {
-      await updateWeeklyPlanItem(itemId, patch)
+      const finalized = await updateWeeklyPlanItem(itemId, patch)
       await load()
+      if (finalized) {
+        setCopyHint(
+          'El proveedor no es Solaino y el diseño ya estaba entregado con tiempo. El proyecto pasó a la foto y sigue en Bodega hasta que el encargado o el admin lo finalicen.',
+        )
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo guardar entrega / factura')
       throw e
@@ -909,7 +996,9 @@ export function BodegaPlanTrabajoPage(props: Props) {
         <h1 className="mt-1 text-[22px] font-bold text-slate-900 sm:text-[24px]">Plan de trabajo bodega</h1>
         <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-slate-600">
           Proyectos con <strong>prioridad</strong> en Bodega → Prioridades (activos arriba,{' '}
-          <strong>finalizados abajo en verde</strong>). Metas por etapa vs avance real automático.
+          <strong>finalizados abajo en verde</strong>). Metas por etapa vs avance real automático. Si el{' '}
+          <strong>proveedor</strong> es otra empresa, al entregar el diseño y tomar su tiempo el proyecto pasa a la foto.
+          Sigue en Bodega hasta que el encargado o el admin lo finalicen. Vacío o Solaino sigue el flujo del taller.
           {canManage ? (
             <>
               {' '}
@@ -933,6 +1022,10 @@ export function BodegaPlanTrabajoPage(props: Props) {
                 <strong>{weeklyPlanStageLabelEs(h.stage)}:</strong> {h.text}
               </li>
             ))}
+            <li>
+              <strong>Otro taller:</strong> si el proyecto está en foto, no se calculan porcentajes. Se muestra el
+              taller y lo finalizan a mano el encargado o el admin.
+            </li>
             <li>
               <strong>Proyecto terminado:</strong> todas las etapas muestran 100% real; no cuenta como atraso. Sirve
               para que admin vea que ya se entregó y cumplió el plan.
@@ -978,12 +1071,14 @@ export function BodegaPlanTrabajoPage(props: Props) {
             <p className="mt-1 font-mono text-[22px] font-bold tabular-nums text-slate-900">
               {bundle.weekSummary.plannedOverallPct}%
             </p>
+            <p className="text-[10px] text-slate-500">Lo que hay que cumplir</p>
           </div>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-3 shadow-sm">
             <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">Avance real</p>
             <p className="mt-1 font-mono text-[22px] font-bold tabular-nums text-emerald-900">
               {bundle.weekSummary.actualOverallPct}%
             </p>
+            <p className="text-[10px] text-emerald-800">Promedio de los renglones de este taller</p>
           </div>
           <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3 shadow-sm">
             <p className="text-[11px] font-bold uppercase tracking-wide text-amber-900">Con atraso</p>
@@ -1131,7 +1226,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
           >
           <table
             ref={planTableRef}
-            className={`w-full border-collapse text-left text-[12px] ${canManage ? 'min-w-[1180px]' : 'min-w-[1080px]'}`}
+            className={`w-full border-collapse text-left text-[12px] ${canManage ? 'min-w-[1280px]' : 'min-w-[1180px]'}`}
           >
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/95">
@@ -1141,6 +1236,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
                 <th className="px-2 py-2.5 font-bold text-slate-700">Requisitor</th>
                 <th className="px-2 py-2.5 font-bold text-slate-700">P.O.</th>
                 <th className="min-w-[10rem] px-2 py-2.5 font-bold text-slate-700">Proyecto</th>
+                <th className="min-w-[9rem] px-2 py-2.5 font-bold text-slate-700">Proveedor</th>
                 {WEEKLY_PLAN_STAGES.map((s) => (
                   <th key={s} className="px-1 py-2.5 text-center font-bold text-slate-700">
                     {weeklyPlanStageLabelEs(s)}
@@ -1235,9 +1331,14 @@ export function BodegaPlanTrabajoPage(props: Props) {
           onSave={async (patch) => {
             setBusy(true)
             try {
-              await updateWeeklyPlanItem(editItem.id, patch)
+              const finalized = await updateWeeklyPlanItem(editItem.id, patch)
               setEditItem(null)
               await load()
+              if (finalized) {
+                setCopyHint(
+                  'El proveedor no es Solaino y el diseño ya estaba entregado con tiempo. El proyecto pasó a la foto y sigue en Bodega hasta que el encargado o el admin lo finalicen.',
+                )
+              }
             } finally {
               setBusy(false)
             }

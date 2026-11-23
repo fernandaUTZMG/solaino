@@ -1,6 +1,8 @@
-import type { BodegaPieceIntervalRow } from './bodegaPieceIntervalsRepo'
-import { intervalDate } from './intervalTime'
+import type { BodegaPieceIntervalRow, BodegaPieceLane } from './bodegaPieceIntervalsRepo'
+import type { BodegaWorkIntervalLane, BodegaWorkIntervalRow } from './bodegaWorkIntervalsRepo'
+import { intervalDate, spanSeconds } from './intervalTime'
 import type { BodegaProjectPieceRow } from './bodegaPiecesRepo'
+import { pieceEligibleForProjectPhotos } from './bodegaPiecePhotosFlow'
 import type { ProjectOrdenTimeBreakdown } from './bodegaProjectOrdenTimes'
 import { formatBusinessMinutesShort } from './bodegaProjectPhaseDurations'
 import {
@@ -10,6 +12,7 @@ import {
 } from './bodegaProjectPipelineProgress'
 import { bodegaProjectStatusLabelEs, type BodegaProjectStatus } from './bodegaProjectsRepo'
 import type { ProjectPiecePhotoRow } from './piecePhotosRepo'
+import { businessSecondsBetween } from './workHours'
 
 const TZ = 'America/Mexico_City'
 
@@ -98,6 +101,100 @@ export function tallerWeekMinutes(t: ProjectOrdenTimeBreakdown): number {
   return t.perfiladoMin + t.detalladoMin + t.armadoMin
 }
 
+const SHOP_PROG_LANES: BodegaPieceLane[] = ['programacion_cnc', 'programacion_torno']
+const SHOP_MACHINE_WORK_LANES: BodegaWorkIntervalLane[] = [
+  'maquina_programacion',
+  'maquina_torno',
+  'maquina_perfilado',
+]
+
+/** Une relojes que se cruzan para que la misma hora de la semana cuente una vez. */
+function mergedMinutes(
+  rows: Array<{ started_at: string; ended_at: string | null }>,
+  now: Date,
+  mode: 'business' | 'wall',
+): number {
+  const spans: Array<{ a: number; b: number }> = []
+  for (const row of rows) {
+    const start = intervalDate(row.started_at)
+    if (!start) continue
+    const end = row.ended_at ? intervalDate(row.ended_at) ?? now : now
+    const a = start.getTime()
+    const b = end.getTime()
+    if (b > a) spans.push({ a, b })
+  }
+  spans.sort((x, y) => x.a - y.a)
+  const merged: Array<{ a: number; b: number }> = []
+  for (const span of spans) {
+    const last = merged[merged.length - 1]
+    if (!last || span.a > last.b) merged.push({ a: span.a, b: span.b })
+    else if (span.b > last.b) last.b = span.b
+  }
+  let seconds = 0
+  for (const span of merged) {
+    if (mode === 'wall') seconds += (span.b - span.a) / 1000
+    else seconds += businessSecondsBetween(new Date(span.a), new Date(span.b))
+  }
+  return seconds / 60
+}
+
+/**
+ * Tiempo de la semana en la planta: diseño, programación, maquinado y taller.
+ * Si el mismo reloj sigue abierto en varios proyectos, esa hora entra una sola vez.
+ */
+export function shopWeekTimes(args: {
+  workIntervals: BodegaWorkIntervalRow[]
+  pieceIntervals: BodegaPieceIntervalRow[]
+  now: Date
+}): ProjectOrdenTimeBreakdown {
+  const work = args.workIntervals
+  const pieces = args.pieceIntervals
+  const now = args.now
+  const disenoMin = mergedMinutes(
+    work.filter((row) => row.lane === 'diseno'),
+    now,
+    'business',
+  )
+  const programacionMin = mergedMinutes(
+    pieces.filter((row) => SHOP_PROG_LANES.includes(row.lane)),
+    now,
+    'business',
+  )
+  const maquinadoMin = mergedMinutes(
+    [
+      ...pieces.filter((row) => row.lane === 'maquinado'),
+      ...work.filter((row) => SHOP_MACHINE_WORK_LANES.includes(row.lane)),
+    ],
+    now,
+    'wall',
+  )
+  const perfiladoMin = mergedMinutes(
+    pieces.filter((row) => row.lane === 'perfilado_operador'),
+    now,
+    'business',
+  )
+  const detalladoMin = mergedMinutes(
+    pieces.filter((row) => row.lane === 'detallado'),
+    now,
+    'business',
+  )
+  const armadoMin = mergedMinutes(
+    [...pieces.filter((row) => row.lane === 'armado'), ...work.filter((row) => row.lane === 'armado')],
+    now,
+    'business',
+  )
+  return {
+    disenoMin,
+    programacionMin,
+    maquinadoMin,
+    perfiladoMin,
+    detalladoMin,
+    armadoMin,
+    totalTrackedMin: disenoMin + programacionMin + maquinadoMin + perfiladoMin + detalladoMin + armadoMin,
+    hasOpenInterval: work.some((row) => row.ended_at == null) || pieces.some((row) => row.ended_at == null),
+  }
+}
+
 export function formatWeekMinutes(mins: number): string {
   if (!Number.isFinite(mins) || mins < 1) return '—'
   return formatBusinessMinutesShort(mins)
@@ -153,12 +250,7 @@ export function buildReportAdvance(args: {
   let withPhoto = 0
   for (const piece of pieces) {
     if (!pieceStageComplete({ piece, stage: 'fotos', intervals, photos, routesConfirmed })) {
-      const eligible =
-        piece.programmer_bucket === 'torno' ||
-        piece.programmer_bucket === 'perfilado' ||
-        piece.programmer_bucket === 'accesorios' ||
-        piece.detallado_completed_at != null
-      if (eligible) readyForPhoto++
+      if (pieceEligibleForProjectPhotos(piece)) readyForPhoto++
       continue
     }
     readyForPhoto++
@@ -196,6 +288,78 @@ export function buildReportAdvance(args: {
   }
 }
 
+export type ReportPieceLine = {
+  id: string
+  label: string
+  destino: string
+  progWeekMin: number
+  progTotalMin: number
+  maquinadoWeekMin: number
+  maquinadoTotalMin: number
+  perfiladoMin: number
+  detalladoMin: number
+  armadoMin: number
+}
+
+const PROG_LANES: BodegaPieceLane[] = ['programacion_cnc', 'programacion_torno']
+
+function destinoEs(bucket: string | null | undefined): string {
+  if (bucket === 'cnc') return 'CNC'
+  if (bucket === 'torno') return 'Torno'
+  if (bucket === 'perfilado') return 'Perfilado'
+  if (bucket === 'accesorios') return 'Accesorios'
+  return 'Sin destino'
+}
+
+function laneMinutes(
+  rows: BodegaPieceIntervalRow[],
+  pieceId: string,
+  lanes: BodegaPieceLane[],
+  now: Date,
+  wall: boolean,
+): number {
+  let seconds = 0
+  for (const row of rows) {
+    if (row.piece_id !== pieceId || !lanes.includes(row.lane)) continue
+    if (wall) {
+      seconds += spanSeconds(row.started_at, row.ended_at, now.getTime())
+      continue
+    }
+    const start = intervalDate(row.started_at)
+    if (!start) continue
+    const end = row.ended_at ? intervalDate(row.ended_at) ?? now : now
+    seconds += businessSecondsBetween(start, end)
+  }
+  return seconds / 60
+}
+
+/** Tiempos por pieza: maquinado en reloj real; el resto en horario de oficina. */
+export function buildReportPieceLines(args: {
+  pieces: BodegaProjectPieceRow[]
+  intervals: BodegaPieceIntervalRow[]
+  weekIntervals: BodegaPieceIntervalRow[]
+  now: Date
+  weekEnd: Date
+}): ReportPieceLine[] {
+  const sorted = [...args.pieces].sort((a, b) => {
+    const order = (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    if (order !== 0) return order
+    return String(a.label ?? '').localeCompare(String(b.label ?? ''), 'es')
+  })
+  return sorted.map((piece) => ({
+    id: piece.id,
+    label: String(piece.label ?? '').trim() || 'Pieza',
+    destino: destinoEs(piece.programmer_bucket),
+    progWeekMin: laneMinutes(args.weekIntervals, piece.id, PROG_LANES, args.weekEnd, false),
+    progTotalMin: laneMinutes(args.intervals, piece.id, PROG_LANES, args.now, false),
+    maquinadoWeekMin: laneMinutes(args.weekIntervals, piece.id, ['maquinado'], args.weekEnd, true),
+    maquinadoTotalMin: laneMinutes(args.intervals, piece.id, ['maquinado'], args.now, true),
+    perfiladoMin: laneMinutes(args.intervals, piece.id, ['perfilado_operador'], args.now, false),
+    detalladoMin: laneMinutes(args.intervals, piece.id, ['detallado'], args.now, false),
+    armadoMin: laneMinutes(args.intervals, piece.id, ['armado'], args.now, false),
+  }))
+}
+
 export function formatWeekCell(mins: number, cumplido: boolean): string {
   if (Number.isFinite(mins) && mins >= 1) return formatWeekMinutes(mins)
   return cumplido ? 'Cumplido' : '—'
@@ -221,6 +385,12 @@ export function quePasoEstaSemana(args: {
 
   if (st === 'revision_diseno' || st === 'revision_programacion') {
     return note ? `En revisión. ${note}` : 'En revisión'
+  }
+
+  if (st === 'en_foto') {
+    return note
+      ? `En foto, con otro proveedor. ${note}`
+      : 'En foto. Lo desarrolla otro proveedor.'
   }
 
   if (DESIGN_WAITING.includes(st)) {

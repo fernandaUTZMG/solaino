@@ -10,15 +10,18 @@ import { fetchProjectActivityForProjects, type ProjectActivityRow } from './proj
 import { fetchMyProfile } from './auth'
 import { getSupabase } from './supabaseClient'
 import { activityAuthorDisplayLabel, fetchActivityActorLabels } from './projectActivityActor'
-import { fetchWorkIntervalsForProjects } from './bodegaWorkIntervalsRepo'
+import { fetchWorkIntervalsForProjects, type BodegaWorkIntervalRow } from './bodegaWorkIntervalsRepo'
 import type { BodegaProjectPieceRow } from './bodegaPiecesRepo'
 import type { BodegaPieceIntervalRow } from './bodegaPieceIntervalsRepo'
 import type { ProjectPiecePhotoRow } from './piecePhotosRepo'
 import {
   buildReportAdvance,
+  buildReportPieceLines,
   clipIntervalsToWindow,
   currentWorkWeekWindow,
+  shopWeekTimes,
   type ReportAdvance,
+  type ReportPieceLine,
   type WorkWeekWindow,
 } from './bodegaReportWeek'
 
@@ -39,6 +42,7 @@ const NOTE_TYPE_LABELS: Record<string, string> = {
   design_revision_requested: 'Diseño — cambios',
   status_changed: 'Cambio de estado',
   machine_uploaded: 'ZIP programación',
+  project_finalized: 'Nota de cierre',
 }
 
 function activityComment(payload: Record<string, unknown> | null): string | null {
@@ -82,12 +86,21 @@ function extractNotes(
   return out.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 }
 
+/** Nota que el encargado o el admin dejaron al finalizar. */
+export function projectCierreNote(notes: ProjectActivityNote[]): ProjectActivityNote | null {
+  return notes.find((n) => n.type === 'project_finalized' && n.comment.trim()) ?? null
+}
+
 export type BodegaProjectReportRow = {
   project: BodegaProjectListRow
   times: ProjectOrdenTimeBreakdown
   weekTimes: ProjectOrdenTimeBreakdown
   activityNotes: ProjectActivityNote[]
   advance: ReportAdvance
+  pieces: ReportPieceLine[]
+  /** Relojes de esta semana, ya recortados. Sirven para el total de la planta, sin sumar proyectos. */
+  weekWork: BodegaWorkIntervalRow[]
+  weekPieces: BodegaPieceIntervalRow[]
 }
 
 export type BodegaOcReportGroup = {
@@ -100,6 +113,8 @@ export type BodegaOcReportGroup = {
   projects: BodegaProjectReportRow[]
   timesSum: ProjectOrdenTimeBreakdown
   weekTimesSum: ProjectOrdenTimeBreakdown
+  /** Esta semana, con las horas que se cruzan contadas una sola vez. */
+  weekShopTimes: ProjectOrdenTimeBreakdown
   nProjects: number
   nTerminados: number
   avgAvancePct: number
@@ -127,7 +142,7 @@ function ocGroupKey(p: BodegaProjectListRow): string {
 const PIECE_BATCH = 60
 
 const PIECE_STAGE_SELECT =
-  'id, project_id, programmer_bucket, programming_finished_at, programming_exit_kind, perfilado_completed_at, maquinado_completed_at, armado_completed_at, detallado_completed_at, post_maquinado_route, post_perfilado_programming_bucket'
+  'id, project_id, label, sort_order, programmer_bucket, programming_finished_at, programming_exit_kind, perfilado_completed_at, maquinado_completed_at, armado_completed_at, detallado_completed_at, post_maquinado_route, post_perfilado_programming_bucket'
 
 function describeQueryError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message
@@ -267,9 +282,12 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
   const reportRows: BodegaProjectReportRow[] = projects.map((project) => {
     const work = workByProject.get(project.id) ?? []
     const intervals: BodegaPieceIntervalRow[] = pieceByProject.get(project.id) ?? []
+    const catalog = catalogPieces.get(project.id) ?? []
+    const weekIntervals = clipIntervalsToWindow(intervals, week)
+    const weekWork = clipIntervalsToWindow(work, week)
     const weekTimes = computeProjectOrdenTimes({
-      workIntervals: clipIntervalsToWindow(work, week),
-      pieceIntervals: clipIntervalsToWindow(intervals, week),
+      workIntervals: weekWork,
+      pieceIntervals: weekIntervals,
       nowRef: week.end,
     })
     return {
@@ -280,14 +298,23 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
         nowRef: now,
       }),
       weekTimes,
+      weekWork,
+      weekPieces: weekIntervals,
       activityNotes: extractNotes(activityByProject.get(project.id) ?? [], authorCtx),
       advance: buildReportAdvance({
         status: project.status,
         week: weekTimes,
-        pieces: catalogPieces.get(project.id) ?? [],
+        pieces: catalog,
         intervals,
         photos: photosByProject.get(project.id) ?? [],
         routesConfirmed: routesConfirmed.get(project.id) ?? false,
+      }),
+      pieces: buildReportPieceLines({
+        pieces: catalog,
+        intervals,
+        weekIntervals,
+        now,
+        weekEnd: week.end,
       }),
     }
   })
@@ -312,6 +339,11 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
     }
     const timesSum = sumOrdenTimeBreakdowns(items.map((i) => i.times))
     const weekTimesSum = sumOrdenTimeBreakdowns(items.map((i) => i.weekTimes))
+    const weekShopTimes = shopWeekTimes({
+      workIntervals: items.flatMap((i) => i.weekWork),
+      pieceIntervals: items.flatMap((i) => i.weekPieces),
+      now: week.end,
+    })
     ocGroups.push({
       key,
       oc,
@@ -322,6 +354,7 @@ export async function fetchBodegaReportesBundle(): Promise<BodegaReportesBundle>
       projects: items,
       timesSum,
       weekTimesSum,
+      weekShopTimes,
       nProjects: items.length,
       nTerminados: nDone,
       avgAvancePct: items.length ? Math.round(sumPct / items.length) : 0,
