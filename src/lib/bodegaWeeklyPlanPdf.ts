@@ -15,7 +15,7 @@ import {
   PLAN_EXPORT_BRAND,
   PLAN_EXPORT_TITLE,
 } from './bodegaWeeklyPlanExportTheme'
-import type { BodegaWeeklyPlanItemEnriched } from './bodegaWeeklyPlanRepo'
+import { weeklyPlanDisplayStatus, type BodegaWeeklyPlanItemEnriched } from './bodegaWeeklyPlanRepo'
 
 const MARGIN = 10
 const PAGE_W = 297
@@ -53,7 +53,7 @@ function itemTableBody(items: BodegaWeeklyPlanItemEnriched[]) {
       (it.proveedor || '—').toUpperCase(),
       ...stages,
       formatPlanDateLongEs(it.fecha_entrega),
-      (it.status_label || '—').toUpperCase(),
+      (weeklyPlanDisplayStatus(it) || '—').toUpperCase(),
       it.factura || '',
     ]
   })

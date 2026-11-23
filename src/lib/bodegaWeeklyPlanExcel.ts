@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs'
 import { otherWorkshopPlanNote } from './bodegaExternalProvider'
+import { weeklyPlanDisplayStatus } from './bodegaWeeklyPlanRepo'
 import { weeklyPlanPrioridadDisplay } from './bodegaProjectPrioridad'
 import { formatWeekRangeEs } from './bodegaWeekCalendar'
 import {
@@ -85,7 +86,7 @@ function writeDataRow(sheet: ExcelJS.Worksheet, rowNum: number, it: BodegaWeekly
     it.actual.maquinado / 100,
     it.actual.armado / 100,
     formatPlanDateLongEs(it.fecha_entrega),
-    (it.status_label || '—').toUpperCase(),
+    (weeklyPlanDisplayStatus(it) || '—').toUpperCase(),
     it.factura || '',
   ]
   values.forEach((v, i) => {

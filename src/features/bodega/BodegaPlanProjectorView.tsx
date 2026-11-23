@@ -5,7 +5,7 @@ import { formatWeekRangeEs } from '../../lib/bodegaWeekCalendar'
 import { formatPlanDateLongEs } from '../../lib/bodegaWeeklyPlanExportCommon'
 import { HEADER_LABELS, PLAN_EXPORT_BRAND, PLAN_EXPORT_TITLE } from '../../lib/bodegaWeeklyPlanExportTheme'
 import {
-  weeklyPlanStatusLabelFromProject,
+  weeklyPlanDisplayStatus,
   type BodegaWeeklyPlanItemEnriched,
 } from '../../lib/bodegaWeeklyPlanRepo'
 
@@ -28,8 +28,7 @@ type Props = {
 }
 
 function planItemStatusLabel(it: BodegaWeeklyPlanItemEnriched): string {
-  if (it.projectStatus) return weeklyPlanStatusLabelFromProject(it.projectStatus)
-  return it.status_label.trim()
+  return weeklyPlanDisplayStatus(it)
 }
 
 function DataBarCell({ pct }: { pct: number }) {

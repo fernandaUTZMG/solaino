@@ -20,7 +20,7 @@ import {
   setWeeklyPlanItemDelay,
   syncWeeklyPlanFromPrioridades,
   updateWeeklyPlanItem,
-  weeklyPlanStatusLabelFromProject,
+  weeklyPlanDisplayStatus,
   type BodegaWeeklyPlanBundle,
   type BodegaWeeklyPlanItemEnriched,
   type WeeklyPlanItemInput,
@@ -46,8 +46,7 @@ type Props = {
 type DeliveryPatch = Pick<WeeklyPlanItemInput, 'fecha_entrega' | 'factura' | 'proveedor'>
 
 function planItemStatusLabel(it: BodegaWeeklyPlanItemEnriched): string {
-  if (it.projectStatus) return weeklyPlanStatusLabelFromProject(it.projectStatus)
-  return it.status_label.trim()
+  return weeklyPlanDisplayStatus(it)
 }
 
 function PlanStatusBadge(props: { it: BodegaWeeklyPlanItemEnriched }) {
@@ -961,7 +960,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
       await load()
       if (finalized) {
         setCopyHint(
-          'El proveedor no es Solaino y el diseño ya estaba entregado con tiempo. El proyecto pasó a la foto y sigue en Bodega hasta que el encargado o el admin lo finalicen.',
+          'El proveedor no es Solaino. El proyecto pasó a otro taller y sigue en Bodega hasta que el encargado o el admin lo finalicen.',
         )
       }
     } catch (e) {
@@ -997,7 +996,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
         <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-slate-600">
           Proyectos con <strong>prioridad</strong> en Bodega → Prioridades (activos arriba,{' '}
           <strong>finalizados abajo en verde</strong>). Metas por etapa vs avance real automático. Si el{' '}
-          <strong>proveedor</strong> es otra empresa, al entregar el diseño y tomar su tiempo el proyecto pasa a la foto.
+          <strong>proveedor</strong> es otra empresa, el plan marca que lo hace otro taller y el proyecto pasa a la foto.
           Sigue en Bodega hasta que el encargado o el admin lo finalicen. Vacío o Solaino sigue el flujo del taller.
           {canManage ? (
             <>
@@ -1023,7 +1022,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
               </li>
             ))}
             <li>
-              <strong>Otro taller:</strong> si el proyecto está en foto, no se calculan porcentajes. Se muestra el
+              <strong>Otro taller:</strong> si el proveedor no es Solaino, no se calculan porcentajes. Se muestra el
               taller y lo finalizan a mano el encargado o el admin.
             </li>
             <li>
@@ -1336,7 +1335,7 @@ export function BodegaPlanTrabajoPage(props: Props) {
               await load()
               if (finalized) {
                 setCopyHint(
-                  'El proveedor no es Solaino y el diseño ya estaba entregado con tiempo. El proyecto pasó a la foto y sigue en Bodega hasta que el encargado o el admin lo finalicen.',
+                  'El proveedor no es Solaino. El proyecto pasó a otro taller y sigue en Bodega hasta que el encargado o el admin lo finalicen.',
                 )
               }
             } finally {

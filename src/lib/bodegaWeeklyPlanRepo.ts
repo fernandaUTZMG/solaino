@@ -1,4 +1,4 @@
-import { isOtherWorkshopProject } from './bodegaExternalProvider'
+import { isWeeklyPlanExternalShop } from './bodegaExternalProvider'
 import { fetchOrdenesCompra, type OrdenCompraRow } from './bodegaOrdenes'
 import { fetchPieceIntervalsForProjects } from './bodegaPieceIntervalsRepo'
 import { fetchWorkIntervalsForProjects } from './bodegaWorkIntervalsRepo'
@@ -379,7 +379,11 @@ export async function fetchWeeklyPlanBundle(
 
     const projectStatus = meta?.status ?? null
     const projectTerminado = isWeeklyPlanProjectTerminado(projectStatus)
-    const externalShop = isOtherWorkshopProject(projectStatus)
+    const externalShop = isWeeklyPlanExternalShop({
+      projectStatus,
+      proveedor: item.proveedor,
+      projectTerminado,
+    })
     const prioridadNivel = meta?.prioridadNivel ?? item.prioridad_nivel
     const planAtHundred = {
       ...item,
@@ -720,6 +724,19 @@ export async function syncWeeklyPlanFromPrioridades(planId: string): Promise<Wee
 export async function importPrioridadProjectsIntoPlan(planId: string, _weekStart?: string): Promise<number> {
   const r = await syncWeeklyPlanFromPrioridades(planId)
   return r.added
+}
+
+/** Status que se ve en la tabla, el proyector y el PDF. */
+export function weeklyPlanDisplayStatus(it: {
+  projectTerminado?: boolean
+  externalShop?: boolean
+  projectStatus?: string | null
+  status_label?: string | null
+}): string {
+  if (it.projectTerminado) return 'Entregado'
+  if (it.externalShop) return 'Otro taller'
+  if (it.projectStatus) return weeklyPlanStatusLabelFromProject(it.projectStatus)
+  return (it.status_label ?? '').trim()
 }
 
 /** Etiqueta de status del plan según el estado del proyecto en bodega. */
